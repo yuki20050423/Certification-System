@@ -1,0 +1,87 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: certification-system
+  profiles:
+    active: dev
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/certification_system?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: root
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 50MB
+      max-request-size: 200MB
+      file-size-threshold: 2KB
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      id-type: auto
+      table-underline: true
+
+logging:
+  level:
+    com.swjtu.certification: debug
+    root: info
+
+# 文件上传配置
+file:
+  upload:
+    path: ./uploads
+    max-size: 52428800  # 50MB，单位：字节
+  download:
+    path: ./downloads
+
+# 专业映射配置
+# key: 专业名称（来自课程导入时的文件名）
+# value: 对应的preferred字段匹配关键词列表
+major:
+  mapping:
+    mappings:
+      "计算机科学与技术":
+        - "计算机类"
+        - "计算机"
+      "软件工程专业":
+        - "软件工程"
+        - "软件"
+      "网络工程":
+        - "网络工程"
+        - "网络"
+      "信息安全":
+        - "信息安全"
+        - "信安"
+      "人工智能":
+        - "人工智能"
+        - "AI"
+      "数据科学与大数据技术":
+        - "大数据"
+        - "数据科学"
+      "物联网工程":
+        - "物联网"
+      "电子信息工程":
+        - "电子信息"
+        - "电信"
+      "通信工程":
+        - "通信"
+      "自动化":
+        - "自动化"
+      "电气工程及其自动化":
+        - "电气"
+      "机械工程":
+        - "机械"
+      "土木工程":
+        - "土木"
+      "交通运输":
+        - "交通运输"
+        - "交通"
+

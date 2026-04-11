@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>专业认证年度备案系统</title>
+    <!-- 引入图标库（增强专业感） -->
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- 引入样式文件 -->
+    <link rel="stylesheet" href="css/style.css">
+    <!-- 浏览器图标（替换为自己的图标路径） -->
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <div class="container">
+            <div class="logo">
+                <img src="images/swjtu_school_emblem1.png" alt="西南交通大学校徽" class="logo-img">
+                <span class="logo-text">西南交通大学 - 专业认证年度备案系统</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="#home" class="active">首页</a></li>
+                <li><a href="#process">备案流程</a></li>
+                <li><a href="#materials">所需资料</a></li>
+                <li><a href="#faq">常见问题</a></li>
+                <li><a href="#contact">联系我们</a></li>
+                <!-- 未登录时显示 -->
+                <li class="auth-item" id="loginBtnItem">
+                    <a href="login.html" class="login-link">
+                        <i class="fas fa-sign-in-alt"></i> 登录/注册
+                    </a>
+                </li>
+                <!-- 登录后显示 -->
+                <li class="auth-item user-menu-item" id="userMenuItem" style="display: none;">
+                    <div class="user-menu">
+                        <div class="user-avatar" id="userAvatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="user-dropdown" id="userDropdown">
+                            <div class="user-info">
+                                <div class="user-name" id="userName">用户名</div>
+                                <div class="user-role" id="userRole">角色</div>
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <a href="admin.html" class="dropdown-item" id="adminLink" style="display: none;">
+                                <i class="fas fa-cog"></i> 管理员控制台
+                            </a>
+                            <a href="assessor.html" class="dropdown-item" id="assessorLink" style="display: none;">
+                                <i class="fas fa-check-circle"></i> 审核员控制台
+                            </a>
+                            <a href="#" class="dropdown-item" id="logoutBtn">
+                                <i class="fas fa-sign-out-alt"></i> 退出登录
+                            </a>
+                        </div>
+                    </div>
+                </li>
+            </ul>
+            <!-- 移动端菜单按钮 -->
+            <button class="menu-btn">
+                <i class="fas fa-bars"></i>
+            </button>
+        </div>
+    </nav>
+
+    <!-- 首页banner区 -->
+    <section id="home" class="banner">
+        <div class="banner-slideshow">
+            <div class="slide active" style="background-image: url('images/swjtu_sce1.png');"></div>
+            <div class="slide" style="background-image: url('images/swjtu_sce2.png');"></div>
+            <div class="slide" style="background-image: url('images/swjtu_sce3.png');"></div>
+            <div class="slide" style="background-image: url('images/swjtu_sce4.png');"></div>
+        </div>
+        <div class="container banner-content">
+            <div class="banner-logo">
+                <img src="images/swjtu_school_emblem1.png" alt="西南交通大学校徽">
+            </div>
+            <h1>西南交通大学</h1>
+            <h2>专业认证年度备案</h2>
+            <p>高效·便捷·合规·安全</p>
+            <div class="banner-subtitle">
+                <i class="fas fa-graduation-cap"></i>
+                <span>传承百年交大精神，培养卓越工程人才</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- 备案流程 -->
+    <section id="process" class="process-section">
+        <div class="container">
+            <h2 class="section-title">备案流程</h2>
+            <div class="process-steps">
+                <div class="step">
+                    <div class="step-icon"><i class="fas fa-user-plus"></i></div>
+                    <h3>注册/登录</h3>
+                    <p>已有账号直接登录，新用户完成实名认证注册</p>
+                </div>
+                <div class="step">
+                    <div class="step-icon"><i class="fas fa-file-alt"></i></div>
+                    <h3>发布备案任务</h3>
+                    <p>管理员按要求发布年度备案任务，包括学年、课程、截止时间等</p>
+                </div>
+                <div class="step">
+                    <div class="step-icon"><i class="fas fa-upload"></i></div>
+                    <h3>填写备案信息</h3>
+                    <p>收到任务的相关教职工按要求上传年度备案材料，包括课程大纲、电子教案、空白试卷等</p>
+                </div>
+                <div class="step">
+                    <div class="step-icon"><i class="fas fa-check-circle"></i></div>
+                    <h3>审核备案</h3>
+                    <p>工作人员审核后，通过短信/邮件通知结果</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 所需资料（12项完整展示） -->
+    <section id="materials" class="materials-section">
+        <div class="container">
+            <h2 class="section-title">备案所需资料</h2>
+            <div class="materials-grid">
+                <div class="material-item">
+                    <i class="fas fa-book"></i>
+                    <h3>1. 教材封面及目录</h3>
+                    <p>课程使用教材的封面扫描件及完整目录页</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-list-check"></i>
+                    <h3>2. 课程大纲</h3>
+                    <p>包含课程目标、教学内容、学时分配等核心信息</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-chalkboard-teacher"></i>
+                    <h3>3. 电子教案</h3>
+                    <p>全章节电子教案（PPT或文档格式）</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-clipboard-check"></i>
+                    <h3>4. 课程评分标准</h3>
+                    <p>平时成绩、期末成绩等权重分配及评分细则</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-clipboard-list"></i>
+                    <h3>5. 课程目标达成度评价表</h3>
+                    <p>针对课程目标设计的达成度量化评价表格</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-file-contract"></i>
+                    <h3>6. 空白试卷</h3>
+                    <p>当期课程完整空白试卷（含客观题、主观题）</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-file-alt"></i>
+                    <h3>7. 试卷参考答案及评分标准</h3>
+                    <p>对应空白试卷的完整参考答案及分步评分规则</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-copy"></i>
+                    <h3>8. 15份学生试卷</h3>
+                    <p>随机抽取的15份学生完整答卷（需隐去个人信息）</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-graduation-cap"></i>
+                    <h3>9. 成绩单</h3>
+                    <p>包含学生平时成绩、期末成绩及总评成绩的完整榜单</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-chart-bar"></i>
+                    <h3>10. 成绩分析表</h3>
+                    <p>成绩分布、平均分、及格率等统计分析报告</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-project-diagram"></i>
+                    <h3>11. 课程设计报告</h3>
+                    <p>课程整体设计思路、教学方法及实施计划报告</p>
+                </div>
+                <div class="material-item">
+                    <i class="fas fa-file-signature"></i>
+                    <h3>12. 作业</h3>
+                    <p>课程作业题目及随机抽取的学生完成样本（不少于5份）</p>
+                </div>
+            </div>
+            <div class="materials-tip">
+                <i class="fas fa-info-circle"></i>
+                <p>所有材料需确保清晰可辨，支持JPG、PNG、PDF、Word格式，单个文件不超过10MB</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- 常见问题 -->
+    <section id="faq" class="faq-section">
+        <div class="container">
+            <h2 class="section-title">常见问题</h2>
+            <div class="faq-list">
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <span>备案截止日期是什么时候？</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>原则上每年12月31日前需完成当年度备案，具体须以管理员发布信息为准，逾期未备案将影响认证资格的有效性，请务必在截止日期前提交申请。</p>
+                    </div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <span>备案审核需要多长时间？</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>提交完整资料后，审核周期为3-5个工作日，审核结果将通过短信和电子邮箱通知，请保持联系方式畅通。</p>
+                    </div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <span>可以修改已提交的备案信息吗？</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>审核未通过前，可登录系统修改备案信息并重新提交；审核通过后，如需修改请联系客服人员处理（联系电话：400-123-4567）。</p>
+                    </div>
+                </div>
+                <div class="faq-item">
+                    <div class="faq-question">
+                        <span>证明材料上传失败怎么办？</span>
+                        <i class="fas fa-chevron-down"></i>
+                    </div>
+                    <div class="faq-answer">
+                        <p>请检查文件格式（支持JPG、PNG、PDF、Word）和大小（单个不超过10MB），确保网络稳定后重新上传；若仍无法上传，可将材料发送至官方邮箱：swjtu@edu.cn，备注姓名和教职工编号。</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 联系我们 -->
+    <section id="contact" class="contact-section">
+        <div class="container">
+            <h2 class="section-title">联系我们</h2>
+            <div class="contact-info">
+                <div class="contact-item">
+                    <i class="fas fa-phone"></i>
+                    <h3>咨询电话</h3>
+                    <p>400-123-4567（工作日 9:00-17:30）</p>
+                </div>
+                <div class="contact-item">
+                    <i class="fas fa-envelope"></i>
+                    <h3>官方邮箱</h3>
+                    <p>swjtu@edu.cn</p>
+                </div>
+                <div class="contact-item">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <h3>犀浦校区地址</h3>
+                    <p>中国四川省成都市郫都区犀安路 999 号</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 页脚 -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-logo-section">
+                    <img src="images/swjtu_school_emblem1.png" alt="西南交通大学校徽" class="footer-logo-img">
+                    <div class="footer-logo-text">
+                        <h3>西南交通大学</h3>
+                        <p>专业认证年度备案系统</p>
+                    </div>
+                </div>
+                <div class="footer-info">
+                    <div class="footer-links">
+                        <a href="#">关于系统</a>
+                        <a href="#">备案须知</a>
+                        <a href="#">隐私政策</a>
+                        <a href="#">用户协议</a>
+                    </div>
+                    <div class="footer-school-info">
+                        <p><i class="fas fa-map-marker-alt"></i> 四川省成都市郫都区犀安路 999 号</p>
+                        <p><i class="fas fa-phone"></i> 400-123-4567</p>
+                        <p><i class="fas fa-envelope"></i> swjtu@edu.cn</p>
+                    </div>
+                </div>
+                <div class="copyright">
+                    <p>© 2025 西南交通大学 专业认证管理中心 版权所有 | 蜀ICP备12345678号</p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- 回到顶部按钮 -->
+    <button id="back-to-top" class="back-to-top">
+        <i class="fas fa-arrow-up"></i>
+    </button>
+
+    <!-- 引入交互脚本 -->
+    <script src="js/script.js"></script>
+</body>
+</html>

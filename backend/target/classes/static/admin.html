@@ -1,0 +1,1379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理员控制台 - 专业认证年度备案系统</title>
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/admin.css">
+</head>
+
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <div class="logo">
+                <img src="images/swjtu_school_emblem1.png" alt="西南交通大学校徽" class="logo-img">
+                <span class="logo-text">西南交通大学 - 专业认证年度备案系统</span>
+            </div>
+            <ul class="nav-menu">
+                <li><a href="index.html">返回首页</a></li>
+                <li class="auth-item user-menu-item">
+                    <div class="user-menu">
+                        <div class="user-avatar" id="userAvatar">
+                            <i class="fas fa-user-shield"></i>
+                        </div>
+                        <div class="user-dropdown" id="userDropdown">
+                            <div class="user-info">
+                                <div class="user-name" id="userName">管理员</div>
+                                <div class="user-role" id="userRole">ADMIN</div>
+                            </div>
+                            <div class="dropdown-divider"></div>
+                            <a href="index.html" class="dropdown-item" id="homeLink">
+                                <i class="fas fa-home"></i> 返回首页
+                            </a>
+                            <a href="#" class="dropdown-item" id="logoutBtn">
+                                <i class="fas fa-sign-out-alt"></i> 退出登录
+                            </a>
+                        </div>
+                    </div>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <div class="admin-container">
+        <div class="sidebar">
+            <div class="sidebar-menu">
+                <div class="menu-item" data-view="dashboard">
+                    <i class="fas fa-tachometer-alt"></i>
+                    <span>仪表盘</span>
+                </div>
+                <div class="menu-item" data-view="tasks">
+                    <i class="fas fa-tasks"></i>
+                    <span>任务管理</span>
+                </div>
+                <div class="menu-item" data-view="notifications">
+                    <i class="fas fa-bell"></i>
+                    <span>通知管理</span>
+                </div>
+                <div class="menu-item" data-view="members">
+                    <i class="fas fa-users"></i>
+                    <span>成员管理</span>
+                </div>
+                <div class="menu-item" data-view="assign">
+                    <i class="fas fa-user-plus"></i>
+                    <span>发布任务</span>
+                </div>
+                <div class="menu-item" data-view="review-assign">
+                    <i class="fas fa-user-check"></i>
+                    <span>审核任务分配</span>
+                </div>
+                <div class="menu-item" data-view="import">
+                    <i class="fas fa-file-import"></i>
+                    <span>数据导入</span>
+                </div>
+                <div class="menu-item" data-view="statistics">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>统计分析</span>
+                </div>
+                <div class="menu-item" data-view="archive">
+                    <i class="fas fa-archive"></i>
+                    <span>已备案档案库</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="content-view" id="dashboard-view">
+                <div class="page-header">
+                    <h1>仪表盘</h1>
+                    <p class="subtitle">系统概览与实时数据</p>
+                </div>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon primary">
+                            <i class="fas fa-tasks"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="totalTasks">0</div>
+                            <div class="stat-label">总任务数</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon success">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="approvedTasks">0</div>
+                            <div class="stat-label">已通过</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon warning">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="pendingTasks">0</div>
+                            <div class="stat-label">待审核</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="dashboard-charts">
+                    <div class="chart-card">
+                        <h3>任务状态分布</h3>
+                        <div class="status-bars" id="statusBars">
+                            <div class="status-bar">
+                                <span class="bar-label">待上传</span>
+                                <div class="bar-container">
+                                    <div class="bar-fill pending" style="width: 0%"></div>
+                                </div>
+                                <span class="bar-value" id="pendingCount">0</span>
+                            </div>
+                            <div class="status-bar">
+                                <span class="bar-label">已提交</span>
+                                <div class="bar-container">
+                                    <div class="bar-fill submitted" style="width: 0%"></div>
+                                </div>
+                                <span class="bar-value" id="submittedCount">0</span>
+                            </div>
+                            <div class="status-bar">
+                                <span class="bar-label">审核中</span>
+                                <div class="bar-container">
+                                    <div class="bar-fill reviewing" style="width: 0%"></div>
+                                </div>
+                                <span class="bar-value" id="reviewingCount">0</span>
+                            </div>
+                            <div class="status-bar">
+                                <span class="bar-label">需修改</span>
+                                <div class="bar-container">
+                                    <div class="bar-fill need-revision" style="width: 0%"></div>
+                                </div>
+                                <span class="bar-value" id="needRevisionCount">0</span>
+                            </div>
+                            <div class="status-bar">
+                                <span class="bar-label">审核通过</span>
+                                <div class="bar-container">
+                                    <div class="bar-fill approved" style="width: 0%"></div>
+                                </div>
+                                <span class="bar-value" id="approvedCount">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-view" id="tasks-view" style="display: none;">
+                <div class="page-header">
+                    <h1>任务管理</h1>
+                    <p class="subtitle">查看和管理所有备案任务</p>
+                </div>
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <label>状态筛选：</label>
+                        <select id="taskStatusFilter">
+                            <option value="">全部</option>
+                            <option value="PENDING_UPLOAD">待上传</option>
+
+                            <option value="PENDING_REVIEW">审核中</option>
+                            <option value="APPROVED">审核通过</option>
+                            <option value="NEED_REVISION">需修改</option>
+                        </select>
+                    </div>
+                    <button class="btn primary-btn" id="refreshTasksBtn">
+                        <i class="fas fa-sync-alt"></i> 刷新
+                    </button>
+                    <button class="btn success-btn" id="exportTasksCsvBtn" style="margin-left: 10px;">
+                        <i class="fas fa-file-csv"></i> 导出CSV
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>课程名称</th>
+                                <th>学期</th>
+                                <th>教师</th>
+                                <th>审核员</th>
+                                <th>截止日期</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tasksTableBody">
+                            <tr>
+                                <td colspan="6" class="loading-row">
+                                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="content-view" id="task-detail-view" style="display: none;">
+                <div class="page-header">
+                    <div class="header-actions">
+                        <button class="btn secondary-btn" id="backToTasksBtn">
+                            <i class="fas fa-arrow-left"></i> 返回任务列表
+                        </button>
+                        <button class="btn primary-btn" id="editTaskBtn">
+                            <i class="fas fa-edit"></i> 编辑任务
+                        </button>
+                    </div>
+                    <h1 id="taskDetailTitle">任务详情</h1>
+                    <p class="subtitle" id="taskDetailSubtitle">查看任务详情、文件和审核记录</p>
+                </div>
+
+                <div class="task-info-card">
+                    <div class="task-info-row">
+                        <div class="info-label">课程名称：</div>
+                        <div class="info-value" id="detailCourseName">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">教学班号：</div>
+                        <div class="info-value" id="detailTeachingClass">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">教师：</div>
+                        <div class="info-value" id="detailTeacher">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">审核员：</div>
+                        <div class="info-value" id="detailAssessor">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">年级：</div>
+                        <div class="info-value" id="detailGrade">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">学期：</div>
+                        <div class="info-value" id="detailSemester">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">截止日期：</div>
+                        <div class="info-value" id="detailDeadline">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">任务状态：</div>
+                        <div class="info-value">
+                            <span class="status-badge" id="detailStatus">-</span>
+                        </div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">创建时间：</div>
+                        <div class="info-value" id="detailCreateTime">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">更新时间：</div>
+                        <div class="info-value" id="detailUpdateTime">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">任务说明：</div>
+                        <div class="info-value" id="detailDescription">-</div>
+                    </div>
+                    <div class="task-info-row">
+                        <div class="info-label">材料要求：</div>
+                        <div class="info-value" id="detailMaterialReq">-</div>
+                    </div>
+                </div>
+
+                <div class="files-section">
+                    <h3>已上传文件</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>文件名</th>
+                                    <th>文件大小</th>
+                                    <th>上传时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="filesTableBody">
+                                <tr>
+                                    <td colspan="4" class="loading-row">
+                                        <i class="fas fa-spinner fa-spin"></i> 加载文件列表...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="review-section">
+                    <h3>最新审核记录</h3>
+                    <div id="latestReviewContent" class="review-info-card">
+                        <div class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载审核记录...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-view" id="teacher-list-view" style="display: none;">
+                <div class="page-header">
+                    <div class="header-actions">
+                        <button class="btn secondary-btn" id="backToAssignBtn">
+                            <i class="fas fa-arrow-left"></i> 返回课程列表
+                        </button>
+                    </div>
+                    <h1 id="teacherListTitle">教师列表</h1>
+                    <p class="subtitle" id="teacherListSubtitle">为课程选择教师</p>
+                </div>
+
+                <div class="course-info-bar">
+                    <div class="info-item">
+                        <span class="info-label">课程：</span>
+                        <span class="info-value" id="teacherListCourseName">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">年级：</span>
+                        <span class="info-value" id="teacherListGrade">-</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">学期：</span>
+                        <span class="info-value" id="teacherListSemester">-</span>
+                    </div>
+                </div>
+
+                <div class="teacher-list-container" id="teacherListContainer">
+                    <div class="loading">
+                        <i class="fas fa-spinner fa-spin"></i> 加载教师列表...
+                    </div>
+                </div>
+
+                <div class="teacher-list-pagination" id="teacherListPagination"></div>
+
+                <div class="teacher-list-actions">
+                    <button class="btn secondary-btn" id="cancelTeacherSelection">
+                        <i class="fas fa-times"></i> 取消
+                    </button>
+                    <button class="btn primary-btn" id="confirmTeacherSelection">
+                        <i class="fas fa-check"></i> 确定选择
+                    </button>
+                </div>
+            </div>
+
+            <div class="content-view" id="review-assign-view" style="display: none;">
+                <div class="page-header">
+                    <h1>审核任务分配</h1>
+                    <p class="subtitle">为备案任务分配审核人员和审核项目</p>
+                </div>
+
+                <!-- 步骤指示器 -->
+                <div class="step-indicator">
+                    <div class="step active" data-step="1">
+                        <div class="step-number">1</div>
+                        <div class="step-label">选择任务</div>
+                    </div>
+                    <div class="step" data-step="2">
+                        <div class="step-number">2</div>
+                        <div class="step-label">选择审核项目</div>
+                    </div>
+                    <div class="step" data-step="3">
+                        <div class="step-number">3</div>
+                        <div class="step-label">分配审核人</div>
+                    </div>
+                    <div class="step" data-step="4">
+                        <div class="step-number">4</div>
+                        <div class="step-label">确认分配</div>
+                    </div>
+                </div>
+
+                <!-- 步骤1：选择任务 -->
+                <div class="step-content active" data-step="1">
+                    <div class="filter-bar">
+                        <div class="filter-group">
+                            <label>状态筛选：</label>
+                            <select id="reviewTaskStatusFilter">
+                                <option value="">全部</option>
+                                <option value="SUBMITTED">已提交待审核</option>
+                                <option value="NEED_REVISION">需修改</option>
+                            </select>
+                        </div>
+                        <button class="btn primary-btn" id="searchReviewTasksBtn">
+                            <i class="fas fa-search"></i> 查询
+                        </button>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>课程名称</th>
+                                    <th>学期</th>
+                                    <th>教师</th>
+                                    <th>截止日期</th>
+                                    <th>状态</th>
+                                    <th>选择</th>
+                                </tr>
+                            </thead>
+                            <tbody id="reviewTasksTableBody">
+                                <tr>
+                                    <td colspan="6" class="loading-row">
+                                        <i class="fas fa-spinner fa-spin"></i> 加载中...
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="step-actions">
+                        <button class="btn primary-btn" id="nextToReviewProjects">
+                            <i class="fas fa-arrow-right"></i> 下一步
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 步骤2：选择审核项目 -->
+                <div class="step-content" data-step="2">
+                    <div class="review-projects-selector">
+                        <h3>选择需要审核的项目</h3>
+                        <div style="margin-bottom: 10px;">
+                            <label><input type="checkbox" id="selectAllReviewProjects"> 全选</label>
+                        </div>
+                        <div class="checkbox-group" id="reviewProjectsGroup">
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="1" data-project="syllabus">
+                                <span>1-教材封面及目录</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="2" data-project="outline">
+                                <span>2-课程大纲</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="3" data-project="教案">
+                                <span>3-电子教案</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="4" data-project="grading">
+                                <span>4-课程评分标准</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="5" data-project="achievement">
+                                <span>5-课程目标达成度评价表</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="6" data-project="paper">
+                                <span>6-空白试卷</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="7" data-project="answer">
+                                <span>7-试卷参考答案及评分标准</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="8" data-project="exams">
+                                <span>8-15份学生试卷</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="9" data-project="transcript">
+                                <span>9-成绩单(平时成绩、总评成绩)</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="10" data-project="analysis">
+                                <span>10-成绩分析表</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="11" data-project="report">
+                                <span>11-课程设计报告</span>
+                            </label>
+                            <label class="checkbox-item">
+                                <input type="checkbox" value="12" data-project="homework">
+                                <span>12-作业</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="step-actions">
+                        <button class="btn secondary-btn" id="backToTaskSelection">
+                            <i class="fas fa-arrow-left"></i> 上一步
+                        </button>
+                        <button class="btn primary-btn" id="nextToAssessorSelection">
+                            <i class="fas fa-arrow-right"></i> 下一步
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 步骤3：分配审核人 -->
+                <div class="step-content" data-step="3">
+                    <div class="assessor-assignment">
+                        <div class="available-assessors">
+                            <h3>可选审核人</h3>
+                            <div class="filter-bar">
+                                <input type="text" id="assessorSearchInput" placeholder="搜索审核人..." class="form-input">
+                            </div>
+                            <div class="assessor-list" id="availableAssessorsList">
+                                <div class="loading-row">
+                                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                                </div>
+                            </div>
+                        </div>
+                        <div class="transfer-actions">
+                            <button class="btn transfer-btn" id="addToAssignment">
+                                <i class="fas fa-chevron-right"></i> 添加
+                            </button>
+                            <button class="btn transfer-btn" id="removeFromAssignment">
+                                <i class="fas fa-chevron-left"></i> 移除
+                            </button>
+                        </div>
+                        <div class="assigned-assessors">
+                            <h3>已选审核人及课程分配</h3>
+                            <div class="assigned-assessors-list" id="assignedAssessorsList">
+                                <div class="assignment-tip">请从左侧选择审核人并分配课程</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="step-actions">
+                        <button class="btn secondary-btn" id="backToReviewProjects">
+                            <i class="fas fa-arrow-left"></i> 上一步
+                        </button>
+                        <button class="btn primary-btn" id="nextToConfirmation">
+                            <i class="fas fa-arrow-right"></i> 下一步
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 步骤4：确认分配 -->
+                <div class="step-content" data-step="4">
+                    <div class="deadline-setting-section">
+                        <h3>设置审核日期</h3>
+                        <div class="date-inputs">
+                            <div class="form-group">
+                                <label for="reviewStartDate">审核起始日期：</label>
+                                <input type="date" id="reviewStartDate" class="form-input">
+                            </div>
+                            <div class="form-group">
+                                <label for="reviewDeadline">审核截止日期：</label>
+                                <input type="date" id="reviewDeadline" class="form-input">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="assignment-summary">
+                        <h3>分配摘要</h3>
+                        <div class="summary-section">
+                            <h4>选中的任务</h4>
+                            <div id="selectedTasksSummary"></div>
+                        </div>
+                        <div class="summary-section">
+                            <h4>审核项目</h4>
+                            <div id="selectedProjectsSummary"></div>
+                        </div>
+                        <div class="summary-section">
+                            <h4>审核日期</h4>
+                            <div id="reviewDateSummary"></div>
+                        </div>
+                        <div class="summary-section">
+                            <h4>审核分配</h4>
+                            <div id="assessorAssignmentSummary"></div>
+                        </div>
+                    </div>
+                    <div class="step-actions">
+                        <button class="btn secondary-btn" id="backToAssessorSelection">
+                            <i class="fas fa-arrow-left"></i> 上一步
+                        </button>
+                        <button class="btn primary-btn" id="confirmAssignment">
+                            <i class="fas fa-check"></i> 确认分配
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-view" id="assign-view" style="display: none;">
+                <div class="page-header">
+                    <h1>创建备案任务</h1>
+                    <p class="subtitle">选择课程并生成备案任务</p>
+                </div>
+
+                <!-- 选项卡：按年级 / 按学期 -->
+                <div class="search-tabs">
+                    <button class="tab-btn active" data-tab="grade">按年级检索</button>
+                    <button class="tab-btn" data-tab="semester">按学期检索</button>
+                </div>
+
+                <!-- 按年级检索面板 -->
+                <div class="search-panel active" id="grade-panel">
+                    <div class="filter-bar">
+                        <div class="filter-group">
+                            <label>专业：</label>
+                            <select id="grade-major" class="form-input">
+                                <option value="">请选择专业</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>年级：</label>
+                            <select id="grade-year" class="form-input">
+                                <option value="">请选择年级</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>培养方案：</label>
+                            <select id="copy-plan-grade" class="form-input" style="width: 150px;">
+                                <option value="">请选择</option>
+                            </select>
+                            <button class="btn secondary-btn" id="copyPlanBtn" style="margin-left: 8px;">
+                                <i class="fas fa-copy"></i> 复制
+                            </button>
+                        </div>
+                        <button class="btn primary-btn" id="search-by-grade">查询</button>
+                    </div>
+                </div>
+
+                <!-- 按学期检索面板 -->
+                <div class="search-panel" id="semester-panel">
+                    <div class="filter-bar">
+                        <div class="filter-group">
+                            <label>专业：</label>
+                            <select id="semester-major" class="form-input">
+                                <option value="">请选择专业</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label>学期：</label>
+                            <select id="semester-select" class="form-input">
+                                <option value="">请选择学期</option>
+                            </select>
+                        </div>
+                        <button class="btn primary-btn" id="search-by-semester">查询</button>
+                    </div>
+                </div>
+
+                <!-- 课程表格区域（初始隐藏） -->
+                <div class="course-table-container" id="course-table-container" style="display: none;">
+                    <div class="table-header">
+                        <div class="selection-controls">
+                            <label><input type="checkbox" id="select-all"> 全选</label>
+                            <!-- 移除以下整行：<button class="btn secondary-btn" id="select-all-semester">按学期全选</button> -->
+                            <!-- 新增年级筛选下拉 -->
+                            <div class="filter-group" style="margin-left: 20px;">
+                                <label id="gradeFilterLabel">年级：</label>
+                                <select id="grade-filter" class="form-input" style="width: 120px;">
+                                    <option value="">全部</option>
+                                </select>
+                            </div>
+                            <!-- 开课状态筛选 -->
+                            <div class="filter-group" style="margin-left: 20px;">
+                                <label>开课状态：</label>
+                                <select id="course-status-filter" class="form-input" style="width: 140px;">
+                                    <option value="">全部课程</option>
+                                    <option value="opened" selected>仅显示开课课程</option>
+                                    <option value="unopened">仅显示未开课课程</option>
+                                </select>
+                            </div>
+                            <!-- 备案状态筛选 -->
+                            <div class="filter-group" style="margin-left: 20px;">
+                                <label>备案状态：</label>
+                                <select id="filed-status-filter" class="form-input" style="width: 140px;">
+                                    <option value="">全部</option>
+                                    <option value="filed">已备案课程</option>
+                                    <option value="unfiled" selected>未备案课程</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="search-box" style="margin-bottom: 15px;">
+                        <input type="text" id="course-search-input" class="form-input" placeholder="输入课程名称进行筛选"
+                            style="width: 300px;">
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>选择</th>
+                                    <th>课程代码</th>
+                                    <th>选课代码</th>
+                                    <th>课程名称</th>
+                                    <th>学分</th>
+                                    <th>学期</th>
+                                    <th>优选班级</th>
+                                    <th>教学班号</th>
+                                    <th>教师姓名</th>
+                                    <th>选课人数</th>
+                                    <th>是否已备案</th>
+                                </tr>
+                            </thead>
+                            <tbody id="course-table-body">
+                                <tr>
+                                    <td colspan="11" class="loading-row">请先查询课程</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="table-footer">
+                        <button class="btn primary-btn" id="generate-task-btn" disabled>生成任务</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-view" id="members-view" style="display: none;">
+                <div class="page-header">
+                    <h1>成员管理</h1>
+                    <p class="subtitle">管理系统成员（管理员、审核员、教师）</p>
+                </div>
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <label>角色：</label>
+                        <select id="memberRoleFilter">
+                            <option value="">全部</option>
+                            <option value="ADMIN">管理员</option>
+                            <option value="TEACHER">教师</option>
+                            <option value="ASSESSOR">审核员</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>工号：</label>
+                        <input type="text" id="memberCodeFilter" class="form-input" placeholder="输入工号搜索">
+                    </div>
+                    <div class="filter-group">
+                        <label>姓名：</label>
+                        <input type="text" id="memberNameFilter" class="form-input" placeholder="输入姓名搜索">
+                    </div>
+                    <button class="btn primary-btn" id="filterMembersBtn">
+                        <i class="fas fa-filter"></i> 筛选
+                    </button>
+                    <button class="btn success-btn" id="addMemberBtn">
+                        <i class="fas fa-plus"></i> 添加成员
+                    </button>
+                </div>
+                <div class="member-list" id="memberList">
+                    <div class="loading">
+                        <i class="fas fa-spinner fa-spin"></i> 加载成员列表...
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-view" id="import-view" style="display: none;">
+                <div class="page-header">
+                    <h1>数据导入</h1>
+                    <p class="subtitle">上传Word文件自动导入课程数据</p>
+                </div>
+                <div class="import-container">
+                    <div class="import-section">
+                        <h3>上传课程数据文件</h3>
+                        <div class="upload-area">
+                            <div class="upload-box" id="uploadBox">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <p>拖拽文件到此处或点击上传</p>
+                                <input type="file" id="courseFileInput" accept=".docx" style="display: none;">
+                            </div>
+                            <div class="upload-info" id="uploadInfo" style="display: none;">
+                                <div class="file-info">
+                                    <i class="fas fa-file-word"></i>
+                                    <div class="file-details">
+                                        <div class="file-name" id="fileName"></div>
+                                        <div class="file-size" id="fileSize"></div>
+                                    </div>
+                                    <button class="btn-icon" onclick="clearFile()">
+                                        <i class="fas fa-times"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="charsetSelect">字符编码</label>
+                            <select id="charsetSelect" class="form-input">
+                                <option value="UTF-8">UTF-8</option>
+                                <option value="GBK">GBK</option>
+                                <option value="GB2312">GB2312</option>
+                            </select>
+                        </div>
+                        <button class="btn primary-btn" id="uploadBtn" onclick="uploadCourseFile()">
+                            <i class="fas fa-upload"></i> 上传并解析
+                        </button>
+                    </div>
+
+                    <div class="import-section">
+                        <h3>从教务系统获取教师</h3>
+                        <div class="form-group">
+                            <label for="courseNameInput">课程名称</label>
+                            <input type="text" id="courseNameInput" class="form-input" placeholder="输入课程名称">
+                        </div>
+                        <button class="btn success-btn" id="fetchTeachersBtn" onclick="fetchTeachers()">
+                            <i class="fas fa-search"></i> 获取教师列表
+                        </button>
+                        <div
+                            style="margin: 10px 0; padding: 10px; background-color: #e3f2fd; border: 1px solid #bbdefb; border-radius: 4px; color: #1976d2; font-size: 14px;">
+                            <i class="fas fa-info-circle"></i> 提示：添加的教师的默认用户名为teacher_工号，密码为123456
+                        </div>
+                        <div class="teacher-result" id="teacherResult" style="display: none;">
+                            <div class="teacher-result-header">
+                                <h4>获取到的教师</h4>
+                                <button class="btn primary-btn" onclick="saveFetchedTeachers()">
+                                    <i class="fas fa-plus"></i> 添加选中的教师
+                                </button>
+                            </div>
+                            <div class="teacher-list" id="fetchedTeacherList"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="uploaded-files-section">
+                    <h3 style="margin-top: 10px">上传文档列表</h3>
+                    <div id="uploadedFilesList" class="uploaded-files-list">
+                        <div class="loading"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-view" id="statistics-view" style="display: none;">
+                <div class="page-header">
+                    <h1>统计分析</h1>
+                    <p class="subtitle">系统数据统计与分析</p>
+                </div>
+                <div class="statistics-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon primary">
+                            <i class="fas fa-tasks"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="statTotalTasks">0</div>
+                            <div class="stat-label">总任务数</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon success">
+                            <i class="fas fa-check-circle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="statApprovedTasks">0</div>
+                            <div class="stat-label">审核通过</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon warning">
+                            <i class="fas fa-clock"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="statPendingTasks">0</div>
+                            <div class="stat-label">待审核</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon danger">
+                            <i class="fas fa-exclamation-circle"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="statNeedRevisionTasks">0</div>
+                            <div class="stat-label">需修改</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon info">
+                            <i class="fas fa-book"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="statTotalCourses">0</div>
+                            <div class="stat-label">总课程数</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon purple">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="statTotalUsers">0</div>
+                            <div class="stat-label">总用户数</div>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon success">
+                            <i class="fas fa-file-upload"></i>
+                        </div>
+                        <div class="stat-content">
+                            <div class="stat-value" id="statUploadedCourseFiles">0</div>
+                            <div class="stat-label">上传文档数</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="content-view" id="notifications-view" style="display: none;">
+                <div class="page-header">
+                    <h1>通知管理</h1>
+                    <p class="subtitle">查看和管理系统通知</p>
+                </div>
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <label>类型筛选：</label>
+                        <select id="notificationTypeFilter">
+                            <option value="">全部</option>
+                            <option value="NEW_TASK">新任务</option>
+                            <option value="REVIEW_RESULT">审核结果</option>
+                            <option value="TASK_REMINDER">任务提醒</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>接收人筛选：</label>
+                        <select id="notificationUserFilter">
+                            <option value="">全部</option>
+                            <option value="TEACHER">教师</option>
+                            <option value="ASSESSOR">审核员</option>
+                            <option value="ADMIN">管理员</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>状态筛选：</label>
+                        <select id="notificationStatusFilter">
+                            <option value="">全部</option>
+                            <option value="0">未读</option>
+                            <option value="1">已读</option>
+                        </select>
+                    </div>
+                    <button class="btn primary-btn" id="refreshNotificationsBtn">
+                        <i class="fas fa-sync-alt"></i> 刷新
+                    </button>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>接收人</th>
+                                <th>类型</th>
+                                <th>标题</th>
+                                <th>内容</th>
+                                <th>状态</th>
+                                <th>创建时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody id="notificationsTableBody">
+                            <tr>
+                                <td colspan="7" class="loading-row">
+                                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="content-view" id="archive-view" style="display: none;">
+                <div class="page-header">
+                    <h1>已备案档案库</h1>
+                    <p class="subtitle">查看和管理已完成的备案课程档案</p>
+                </div>
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <label>学期：</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <select id="archiveSemesterFilter" class="form-input" style="width: 200px;">
+                                <option value="">全部</option>
+                            </select>
+                            <input type="text" id="archiveSemesterFilterInput" class="form-input" placeholder="或手动输入学期"
+                                style="width: 180px;">
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <label>专业：</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <select id="archiveMajorFilter" class="form-input" style="width: 180px;">
+                                <option value="">全部</option>
+                            </select>
+                            <input type="text" id="archiveMajorFilterInput" class="form-input" placeholder="或手动输入专业"
+                                style="width: 180px;">
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <label>课程名：</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <select id="archiveCourseNameFilter" class="form-input" style="width: 180px;">
+                                <option value="">全部</option>
+                            </select>
+                            <input type="text" id="archiveCourseNameFilterInput" class="form-input"
+                                placeholder="或手动输入课程名" style="width: 180px;">
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <label>教师：</label>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <select id="archiveTeacherFilter" class="form-input" style="width: 180px;">
+                                <option value="">全部</option>
+                            </select>
+                            <input type="text" id="archiveTeacherFilterInput" class="form-input" placeholder="或手动输入教师"
+                                style="width: 180px;">
+                        </div>
+                    </div>
+                    <div class="filter-group">
+                        <label>状态：</label>
+                        <select id="archiveStatusFilter">
+                            <option value="">全部</option>
+                            <option value="PENDING_UPLOAD">待上传</option>
+
+                            <option value="PENDING_REVIEW">审核中</option>
+                            <option value="APPROVED">审核通过</option>
+                            <option value="NEED_REVISION">需修改</option>
+                        </select>
+                    </div>
+                    <button class="btn primary-btn" id="searchArchiveBtn">
+                        <i class="fas fa-search"></i> 搜索
+                    </button>
+                    <button class="btn secondary-btn" id="resetArchiveBtn">
+                        <i class="fas fa-redo"></i> 重置
+                    </button>
+                </div>
+                <div class="table-header">
+                    <div class="selection-controls">
+                        <label><input type="checkbox" id="archiveSelectAll"> 全选</label>
+                        <button class="btn primary-btn" id="batchExportArchiveBtn" disabled>
+                            <i class="fas fa-download"></i> 批量导出
+                        </button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th><input type="checkbox" id="archiveCheckboxHeader"></th>
+                                <th>课程名称</th>
+                                <th>教学班号</th>
+                                <th>教师</th>
+                                <th>学期</th>
+                                <th>专业</th>
+                                <th>年级</th>
+                                <th>状态</th>
+                                <th>文件数</th>
+                                <th>提交时间</th>
+                            </tr>
+                        </thead>
+                        <tbody id="archiveTableBody">
+                            <tr>
+                                <td colspan="10" class="loading-row">
+                                    <i class="fas fa-spinner fa-spin"></i> 加载中...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+
+            <div class="content-view" id="notifications-view" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>修改截止日期</h3>
+                        <button class="modal-close" id="closeDeadlineModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="newDeadline">新截止日期</label>
+                            <input type="datetime-local" id="newDeadline" class="form-input">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="cancelDeadline">取消</button>
+                        <button class="btn primary-btn" id="saveDeadline">保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal" id="assignedTasksModal">
+                <div class="modal-content" style="max-width: 900px;">
+                    <div class="modal-header">
+                        <h3>暂存任务</h3>
+                        <button class="modal-close" id="closeAssignedTasksModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>课程名称</th>
+                                        <th>教学班号</th>
+                                        <th>教师</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="assignedTasksTableBody">
+                                    <tr>
+                                        <td colspan="4" class="loading-row">
+                                            <i class="fas fa-spinner fa-spin"></i> 加载中...
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="closeAssignedTasksModalBtn">关闭</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal" id="manualAddTaskModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>手动添加任务</h3>
+                        <button class="modal-close" id="closeManualAddModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>课程名称 <span class="required">*</span></label>
+                            <input type="text" id="manualCourseName" class="form-input" placeholder="请输入课程名称">
+                        </div>
+                        <div class="form-group">
+                            <label>教学班号 <span class="required">*</span></label>
+                            <input type="text" id="manualTeachingClass" class="form-input" placeholder="请输入教学班号">
+                        </div>
+                        <div class="form-group">
+                            <label>教师姓名 <span class="required">*</span></label>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="text" id="manualTeacherName" class="form-input"
+                                    placeholder="请输入教师姓名(如没有这个用户将自动创建)" style="flex: 1;">
+                                <button type="button" class="btn primary-btn" id="checkTeacherBtn"
+                                    style="width: auto; padding: 8px 16px;">验证</button>
+                            </div>
+                            <div id="teacherCheckResult" style="margin-top: 8px; font-size: 14px;"></div>
+                        </div>
+                        <div class="form-group" id="workIdGroup" style="display: none;">
+                            <label>工号 <span class="required">*</span></label>
+                            <input type="text" id="manualWorkId" class="form-input" placeholder="请输入工号">
+                            <div id="workIdHint" style="margin-top: 4px; font-size: 12px; color: #666;"></div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="cancelManualAdd">取消</button>
+                        <button class="btn primary-btn" id="confirmManualAdd">确定</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal" id="deleteConfirmModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>确认删除</h3>
+                        <button class="modal-close" id="closeDeleteConfirmModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <p>确定要删除这个任务吗？此操作不可恢复。</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="cancelDelete">取消</button>
+                        <button class="btn danger-btn" id="confirmDelete">删除</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal" id="addMemberModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>添加成员</h3>
+                        <button class="modal-close" id="closeAddMemberModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="newUsername">用户名 <span class="required">*</span></label>
+                            <input type="text" id="newUsername" class="form-input" placeholder="输入用户名">
+                        </div>
+                        <div class="form-group">
+                            <label for="newWorkId">工号 <span class="required">*</span></label>
+                            <input type="text" id="newWorkId" class="form-input" placeholder="输入工号">
+                        </div>
+                        <div class="form-group">
+                            <label for="newRealName">真实姓名 <span class="required">*</span></label>
+                            <input type="text" id="newRealName" class="form-input" placeholder="输入真实姓名">
+                        </div>
+                        <div class="form-group">
+                            <label for="newEmail">邮箱 <span class="required">*</span></label>
+                            <input type="email" id="newEmail" class="form-input" placeholder="输入邮箱">
+                        </div>
+                        <div class="form-group">
+                            <label for="newPhone">手机号 <span class="required">*</span></label>
+                            <input type="text" id="newPhone" class="form-input" placeholder="输入手机号">
+                        </div>
+                        <div class="form-group">
+                            <label for="newPassword">密码 <span class="required">*</span></label>
+                            <input type="password" id="newPassword" class="form-input" placeholder="输入密码（至少6位）">
+                        </div>
+                        <div class="form-group">
+                            <label for="newRole">角色 <span class="required">*</span></label>
+                            <select id="newRole" class="form-input">
+                                <option value="">请选择角色</option>
+                                <option value="TEACHER">教师</option>
+                                <option value="ASSESSOR">审核员</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="newDepartment">院系</label>
+                            <input type="text" id="newDepartment" class="form-input" placeholder="输入院系">
+                        </div>
+                        <div class="form-group">
+                            <label for="newTitle">职称</label>
+                            <input type="text" id="newTitle" class="form-input" placeholder="输入职称">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="cancelAddMember">取消</button>
+                        <button class="btn primary-btn" id="saveAddMember">添加</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal" id="deleteMemberConfirmModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>确认删除成员</h3>
+                        <button class="modal-close" id="closeDeleteMemberConfirmModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <p>确定要删除该成员吗？此操作不可恢复。</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="cancelDeleteMember">取消</button>
+                        <button class="btn danger-btn" id="confirmDeleteMember">删除</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal" id="editTaskModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>编辑任务信息</h3>
+                        <button class="modal-close" id="closeEditTaskModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>任务说明</label>
+                            <textarea id="editTaskDescription" class="form-input" rows="4"
+                                placeholder="请输入任务说明"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>材料要求</label>
+                            <textarea id="editTaskMaterialReq" class="form-input" rows="4"
+                                placeholder="请输入材料要求"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="cancelEditTask">取消</button>
+                        <button class="btn primary-btn" id="confirmEditTask">保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal" id="editRoleModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>修改成员角色</h3>
+                        <button class="modal-close" id="closeEditRoleModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>当前成员</label>
+                            <input type="text" id="editRoleMemberName" class="form-input" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label>当前角色</label>
+                            <input type="text" id="editRoleCurrentRole" class="form-input" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label for="editRoleNewRole">新角色 <span class="required">*</span></label>
+                            <select id="editRoleNewRole" class="form-input">
+                                <option value="">请选择角色</option>
+                                <option value="TEACHER">教师</option>
+                                <option value="ASSESSOR">审核员</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="cancelEditRole">取消</button>
+                        <button class="btn primary-btn" id="saveEditRole">保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal" id="editNotificationModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>编辑通知</h3>
+                        <button class="modal-close" id="closeEditNotificationModal">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label for="editNotificationId">通知ID</label>
+                            <input type="text" id="editNotificationId" class="form-input" readonly>
+                        </div>
+                        <div class="form-group">
+                            <label for="editNotificationTitle">标题 <span class="required">*</span></label>
+                            <input type="text" id="editNotificationTitle" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label for="editNotificationContent">内容 <span class="required">*</span></label>
+                            <textarea id="editNotificationContent" class="form-input" rows="5"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="cancelEditNotification">取消</button>
+                        <button class="btn primary-btn" id="saveEditNotification">保存</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 任务配置弹窗 -->
+            <div class="modal" id="taskConfigModal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3>配置任务</h3>
+                        <button class="modal-close" id="closeTaskConfigModal"><i class="fas fa-times"></i></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>任务名称</label>
+                            <input type="text" id="taskName" class="form-input" placeholder="输入任务名称">
+                        </div>
+                        <div class="form-group">
+                            <label>起止时间</label>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="datetime-local" id="taskStartTime" class="form-input" style="flex:1;">
+                                <span>至</span>
+                                <input type="datetime-local" id="taskEndTime" class="form-input" style="flex:1;">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>选择审核员</label>
+                            <select id="taskAssessor" class="form-input">
+                                <option value="">暂不分配</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>备案项目</label>
+                            <div id="taskItems" class="task-items">
+                                <!-- 动态生成复选框 -->
+                            </div>
+                        </div>
+                        <div class="form-group" id="futureCourseTeacherGroup" style="display: none;">
+                            <label>未来课程教师 <span class="required">*</span></label>
+                            <div class="teacher-search-wrapper">
+                                <input type="text" id="futureCourseTeacher" class="form-input"
+                                       placeholder="输入教师姓名或工号检索" autocomplete="off">
+                                <div id="teacherSuggestions" class="suggestions-dropdown" style="display: none;"></div>
+                            </div>
+                            <div class="hint" style="font-size: 12px; color: #666; margin-top: 4px;">
+                                请选择或输入已存在的教师。若不存在，系统将自动创建账号（默认密码123456）
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn secondary-btn" id="cancelTaskConfig">取消</button>
+                        <button class="btn primary-btn" id="confirmTaskConfig">确认生成</button>
+                    </div>
+                </div>
+            </div>
+
+            <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+            <script src="js/admin.js"></script>
+</body>
+
+</html>

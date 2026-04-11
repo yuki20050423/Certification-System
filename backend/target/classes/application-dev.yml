@@ -1,0 +1,9 @@
+# 开发环境配置
+# 请根据实际情况修改数据库连接信息
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/certification_system?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: root
+    password: W924107131
+
