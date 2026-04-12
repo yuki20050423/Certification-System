@@ -251,12 +251,22 @@ Certification-System/
        password: your_password
    ```
 
-3. **运行项目**
+3. **连接教务网**
+   打开教务网，登录成功后查看Cookie，复制 JSESSIONID 和 TWFID 的值
+   编辑`backend/src/main/java/com/swjtu/certification/util/GetTeacherList`，修改 JSESSIONID 和 TWFID 的值
+   ```yaml
+   private static final Map<String, String> COOKIES = new HashMap<>() {{
+   put("JSESSIONID", "JSESSIONID的值");
+   put("TWFID", "TWFID的值");
+   put("platformMultilingual_-_edu.cn", "zh_CN");
+   }};
+   ```
+
+4. **运行项目**
    在IDE中右键 `CertificationApplication.java` -> Run
    后端服务默认运行在 `http://localhost:8080`
 
-
-4. **访问系统**  
+5. **访问系统**  
    打开浏览器访问 `http://localhost:8080`（或你配置的地址）。
 
 ### 测试账号
