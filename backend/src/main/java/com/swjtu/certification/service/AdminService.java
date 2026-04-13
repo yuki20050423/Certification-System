@@ -78,6 +78,7 @@ public class AdminService {
     private final MajorMappingConfig majorMappingConfig;
     private static final Map<String, LocalDateTime> TEACHER_FETCH_CACHE = new ConcurrentHashMap<>();
     private static final long CACHE_DURATION_DAYS = 30;
+    private final EmailService emailService;
 
     @Value("${file.download.path:./downloads}")
     private String downloadPath;
@@ -384,6 +385,32 @@ public class AdminService {
                         assessorNotificationTitle,
                         assessorNotificationContent
                 );
+            }
+
+            // 发送邮件给教师
+            if (teacher != null && teacher.getEmail() != null && !teacher.getEmail().isEmpty()) {
+                String subject = "【专业认证备案】新任务通知 - " + teacherEntity.getCourseName();
+                String emailContent = buildTeacherEmailContent(
+                        teacherEntity.getCourseName(),
+                        teacherEntity.getTeachingClass(),
+                        item.getDeadline().toString()
+                );
+                emailService.sendHtmlMail(teacher.getEmail(), subject, emailContent);
+            }
+
+            // 发送邮件给审核员（如果有）
+            if (item.getAssessorId() != null) {
+                User assessor = userMapper.selectById(item.getAssessorId());
+                if (assessor != null && assessor.getEmail() != null && !assessor.getEmail().isEmpty()) {
+                    String subject = "【专业认证备案】新审核任务通知 - " + teacherEntity.getCourseName();
+                    String emailContent = buildAssessorEmailContent(
+                            teacherEntity.getCourseName(),
+                            teacherEntity.getTeachingClass(),
+                            teacher.getRealName(),
+                            item.getDeadline().toString()
+                    );
+                    emailService.sendHtmlMail(assessor.getEmail(), subject, emailContent);
+                }
             }
         }
     }
@@ -1889,6 +1916,31 @@ public class AdminService {
                                 teacherNotificationTitle,
                                 teacherNotificationContent
                         );
+                        // 发送邮件给未来课程教师
+                        if (teacher.getEmail() != null && !teacher.getEmail().isEmpty()) {
+                            String subject = "【专业认证备案】新任务通知 - " + course.getCourseName();
+                            String emailContent = buildTeacherEmailContent(
+                                    course.getCourseName(),
+                                    "未开课",  // 未来课程无教学班号
+                                    dto.getEndTime()
+                            );
+                            emailService.sendHtmlMail(teacher.getEmail(), subject, emailContent);
+                        }
+
+                        // 发送邮件给审核员（如果有）
+                        if (dto.getAssessorId() != null) {
+                            User assessor = userMapper.selectById(dto.getAssessorId());
+                            if (assessor != null && assessor.getEmail() != null && !assessor.getEmail().isEmpty()) {
+                                String subject = "【专业认证备案】新审核任务通知 - " + course.getCourseName();
+                                String emailContent = buildAssessorEmailContent(
+                                        course.getCourseName(),
+                                        "未开课",
+                                        teacher.getRealName(),
+                                        dto.getEndTime()
+                                );
+                                emailService.sendHtmlMail(assessor.getEmail(), subject, emailContent);
+                            }
+                        }
                     }
                 }
             }
@@ -2864,5 +2916,42 @@ public class AdminService {
      */
     public String getDownloadPath() {
         return downloadPath;
+    }
+
+    /**
+     * 生成教师通知邮件内容
+     */
+    private String buildTeacherEmailContent(String courseName, String teachingClass, String deadline) {
+        return String.format(
+                "<h3>📧 专业认证年度备案 - 新任务通知</h3>" +
+                        "<p>您收到了一条新的备案任务，请及时登录系统上传相关材料。</p>" +
+                        "<table border='0' cellpadding='8' style='border-collapse: collapse;'>" +
+                        "<tr><td><strong>课程名称：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>教学班：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>截止日期：</strong></td><td>%s</td></tr>" +
+                        "</table>" +
+                        "<p><a href='http://your-system-domain/teacher/tasks' style='display: inline-block; padding: 10px 20px; background-color: #165DFF; color: #fff; text-decoration: none; border-radius: 5px;'>进入系统查看</a></p>" +
+                        "<p style='color: #999; font-size: 12px;'>本邮件由系统自动发送，请勿回复。</p>",
+                courseName, teachingClass, deadline
+        );
+    }
+
+    /**
+     * 生成审核员通知邮件内容
+     */
+    private String buildAssessorEmailContent(String courseName, String teachingClass, String teacherName, String deadline) {
+        return String.format(
+                "<h3>📧 专业认证年度备案 - 新审核任务通知</h3>" +
+                        "<p>您收到了一条新的审核任务，请及时登录系统进行审核。</p>" +
+                        "<table border='0' cellpadding='8' style='border-collapse: collapse;'>" +
+                        "<tr><td><strong>课程名称：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>教学班：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>任课教师：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>截止日期：</strong></td><td>%s</td></tr>" +
+                        "</table>" +
+                        "<p><a href='http://your-system-domain/assessor/tasks' style='display: inline-block; padding: 10px 20px; background-color: #165DFF; color: #fff; text-decoration: none; border-radius: 5px;'>进入系统审核</a></p>" +
+                        "<p style='color: #999; font-size: 12px;'>本邮件由系统自动发送，请勿回复。</p>",
+                courseName, teachingClass, teacherName, deadline
+        );
     }
 }

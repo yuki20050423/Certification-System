@@ -17,8 +17,8 @@ public class GetTeacherList {
     /* ========================= 1. 配置信息 ========================= */
 
     private static final Map<String, String> COOKIES = new HashMap<>() {{
-        put("JSESSIONID", "D97186FE2E3A6949C04CC8EC333E88D6");
-        put("TWFID", "2d8ab46e05cb3058");
+        put("JSESSIONID", "BEEEEE679C449726DD5256D616815074");
+        put("TWFID", "972bb967c6468167");
         put("platformMultilingual_-_edu.cn", "zh_CN");
     }};
 
