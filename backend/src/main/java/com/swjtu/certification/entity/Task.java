@@ -2,6 +2,7 @@ package com.swjtu.certification.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
@@ -32,16 +33,19 @@ public class Task {
     /**
      * 协作教师ID2
      */
+    @TableField("teacher_id_2")
     private Long teacherId2;
 
     /**
      * 协作教师ID3
      */
+    @TableField("teacher_id_3")
     private Long teacherId3;
 
     /**
      * 协作教师ID4
      */
+    @TableField("teacher_id_4")
     private Long teacherId4;
 
     /**

@@ -3455,22 +3455,26 @@ function getSharedAvailableProjects(tasks) {
         return [];
     }
 
-    const commonCodes = new Set((tasks[0].availableReviewProjects || []).map(project => project.code));
-    tasks.slice(1).forEach(task => {
-        const taskCodes = new Set((task.availableReviewProjects || []).map(project => project.code));
-        Array.from(commonCodes).forEach(code => {
-            if (!taskCodes.has(code)) {
-                commonCodes.delete(code);
+    const projectMap = new Map();
+    tasks.forEach(task => {
+        (task.availableReviewProjects || []).forEach(project => {
+            if (!projectMap.has(project.code)) {
+                projectMap.set(project.code, {
+                    code: project.code,
+                    name: project.name || ITEM_DESC_MAP[project.code] || `项目 ${project.code}`
+                });
             }
         });
     });
 
-    return (tasks[0].availableReviewProjects || [])
-        .filter(project => commonCodes.has(project.code))
-        .map(project => ({
-            code: project.code,
-            name: project.name || ITEM_DESC_MAP[project.code] || `项目 ${project.code}`
-        }));
+    return Array.from(projectMap.values()).sort((a, b) => {
+        const aNum = Number(a.code);
+        const bNum = Number(b.code);
+        if (!Number.isNaN(aNum) && !Number.isNaN(bNum)) {
+            return aNum - bNum;
+        }
+        return String(a.code).localeCompare(String(b.code), 'zh-CN');
+    });
 }
 
 function renderReviewProjectsSelector(projects) {
@@ -3484,7 +3488,7 @@ function renderReviewProjectsSelector(projects) {
         if (selectedTasks.length === 0) {
             hint.text('请先在上一步选择任务。');
         } else {
-            hint.text('当前所选任务没有共同可分配的审核项目，请调整任务选择。');
+            hint.text('当前所选任务没有可分配的审核项目，请调整任务选择。');
         }
         selectedReviewProjects = [];
         return;
@@ -3492,7 +3496,7 @@ function renderReviewProjectsSelector(projects) {
 
     const validCodes = new Set(projects.map(project => project.code));
     selectedReviewProjects = selectedReviewProjects.filter(code => validCodes.has(code));
-    hint.text(`仅显示所选任务共同拥有且尚未审核通过的项目，共 ${projects.length} 项。`);
+    hint.text(`显示所选任务中尚未审核通过的全部项目，共 ${projects.length} 项。系统会按每个任务实际拥有的项目分别创建审核任务。`);
     selectAll.prop('disabled', false);
 
     container.html(projects.map(project => `

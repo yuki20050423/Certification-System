@@ -21,7 +21,7 @@ public class GetTeacherList {
      * 注意：JSESSIONID 等会话 Cookie 有时效性，过期后需要重新登录获取
      */
     private static final Map<String, String> COOKIES = new HashMap<>() {{
-        put("JSESSIONID", "A2A1A84D080EE9E0B75546438BF4249E");
+        put("JSESSIONID", "FF25F35D450EAF54E0EF2290EF7FAC36");
         // put("HMACCOUNT", "2ADF566D31796646");
         // put("Hm_lpvt_87cf2c3472ff749fe7d2282b7106e8f1", "1776173359");
         // put("Hm_lvt_87cf2c3472ff749fe7d2282b7106e8f1", "1775817691,1775889608,1775953419,1776173357");

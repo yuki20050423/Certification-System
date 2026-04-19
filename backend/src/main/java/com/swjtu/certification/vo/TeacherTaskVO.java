@@ -26,6 +26,11 @@ public class TeacherTaskVO {
     private String courseName;
 
     /**
+     * 课程代码
+     */
+    private String courseCode;
+
+    /**
      * 教学班号
      */
     private String teachingClass;

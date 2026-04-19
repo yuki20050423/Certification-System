@@ -5,6 +5,7 @@ import com.swjtu.certification.entity.File;
 import com.swjtu.certification.entity.Task;
 import com.swjtu.certification.mapper.FileMapper;
 import com.swjtu.certification.mapper.TaskMapper;
+import com.swjtu.certification.util.TaskTeacherUtils;
 import com.swjtu.certification.util.TaskItemUtils;
 import com.swjtu.certification.vo.FileVO;
 import lombok.RequiredArgsConstructor;
@@ -46,7 +47,7 @@ public class FileService {
         if (task == null) {
             throw new RuntimeException("任务不存在");
         }
-        if (!task.getTeacherId().equals(userId)) {
+        if (!TaskTeacherUtils.containsTeacher(task, userId)) {
             throw new RuntimeException("无权上传该任务的文件");
         }
         if (LocalDateTime.now().isAfter(task.getDeadline())) {
@@ -160,7 +161,7 @@ public class FileService {
 
     public List<FileVO> getTaskFilesForTeacher(Long taskId, Long teacherId) {
         Task task = taskMapper.selectById(taskId);
-        if (task == null || !teacherId.equals(task.getTeacherId())) {
+        if (task == null || !TaskTeacherUtils.containsTeacher(task, teacherId)) {
             throw new RuntimeException("无权查看该任务文件");
         }
 
@@ -194,6 +195,9 @@ public class FileService {
         if (task == null) {
             throw new RuntimeException("关联任务不存在");
         }
+        if (!TaskTeacherUtils.containsTeacher(task, userId)) {
+            throw new RuntimeException("无权删除该任务文件");
+        }
         if (LocalDateTime.now().isAfter(task.getDeadline())) {
             throw new RuntimeException("任务已截止，无法删除文件");
         }
@@ -222,11 +226,11 @@ public class FileService {
      */
     public boolean checkFileCanDelete(Long fileId, Long teacherId) {
         File file = fileMapper.selectById(fileId);
-        if (file == null || !file.getUploadUserId().equals(teacherId)) {
+        if (file == null) {
             return false;
         }
         Task task = taskMapper.selectById(file.getTaskId());
-        if (task == null) {
+        if (task == null || !TaskTeacherUtils.containsTeacher(task, teacherId)) {
             return false;
         }
         if (LocalDateTime.now().isAfter(task.getDeadline())) {
@@ -243,7 +247,11 @@ public class FileService {
      */
     public File getFileById(Long fileId, Long teacherId) {
         File file = fileMapper.selectById(fileId);
-        if (file == null || !file.getUploadUserId().equals(teacherId)) {
+        if (file == null) {
+            return null;
+        }
+        Task task = taskMapper.selectById(file.getTaskId());
+        if (task == null || !TaskTeacherUtils.containsTeacher(task, teacherId)) {
             return null;
         }
         return file;

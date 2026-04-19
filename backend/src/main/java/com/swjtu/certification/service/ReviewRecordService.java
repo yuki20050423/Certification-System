@@ -13,6 +13,7 @@ import com.swjtu.certification.mapper.ReviewRecordMapper;
 import com.swjtu.certification.mapper.TeacherMapper;
 import com.swjtu.certification.mapper.TaskMapper;
 import com.swjtu.certification.mapper.UserMapper;
+import com.swjtu.certification.util.TaskTeacherUtils;
 import com.swjtu.certification.util.TaskItemUtils;
 import com.swjtu.certification.vo.ReviewRecordVO;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +44,20 @@ public class ReviewRecordService {
     private final EmailService emailService;
     private final ReviewWorkflowService reviewWorkflowService;
 
+    private List<User> getTaskTeachers(Task task) {
+        return TaskTeacherUtils.getTeacherIds(task).stream()
+                .map(userMapper::selectById)
+                .filter(user -> user != null)
+                .collect(Collectors.toList());
+    }
+
+    private String joinTeacherNames(Task task) {
+        List<User> teachers = getTaskTeachers(task);
+        return teachers.isEmpty()
+                ? "未知教师"
+                : teachers.stream().map(User::getRealName).filter(name -> name != null && !name.isEmpty()).collect(Collectors.joining(" "));
+    }
+
     /**
      * 校验任务归属
      */
@@ -50,7 +65,7 @@ public class ReviewRecordService {
         // 1. 查询任务
          Task task = taskMapper.selectById(taskId);
         // 2. 校验归属
-         return task != null && task.getTeacherId().equals(teacherId);
+         return task != null && TaskTeacherUtils.containsTeacher(task, teacherId);
     }
 
     /**
@@ -237,37 +252,37 @@ public class ReviewRecordService {
                     Teacher teacherEntity = teacherMapper.selectById(task.getCourseId());
                     if (teacherEntity != null) {
                         vo.setCourseName(teacherEntity.getCourseName());
+                        vo.setCourseCode(teacherEntity.getCourseCode());
                         vo.setTeachingClass(teacherEntity.getTeachingClass());
                     } else {
                         vo.setCourseName("未知课程");
+                        vo.setCourseCode("");
                         vo.setTeachingClass("");
                     }
                 } catch (Exception e) {
                     System.err.println("获取课程信息失败: " + e.getMessage());
                     vo.setCourseName("未知课程");
+                    vo.setCourseCode("");
                     vo.setTeachingClass("");
                 }
 
                 // 获取教师信息（teacherId 关联 User 表）
                 try {
-                    User teacher = userMapper.selectById(task.getTeacherId());
-                    if (teacher != null) {
-                        vo.setTeacherName(teacher.getRealName());
-                    } else {
-                        vo.setTeacherName("未知教师");
-                    }
+                    vo.setTeacherName(joinTeacherNames(task));
                 } catch (Exception e) {
                     System.err.println("获取教师信息失败: " + e.getMessage());
                     vo.setTeacherName("未知教师");
                 }
             } else {
                 vo.setCourseName("任务已删除");
+                vo.setCourseCode("");
                 vo.setTeacherName("-");
                 vo.setTeachingClass("");
             }
         } catch (Exception e) {
             System.err.println("获取任务信息失败: " + e.getMessage());
             vo.setCourseName("未知");
+            vo.setCourseCode("");
             vo.setTeacherName("未知");
             vo.setTeachingClass("");
         }
@@ -280,9 +295,9 @@ public class ReviewRecordService {
      */
     public List<ReviewRecordVO> getTeacherReviewRecords(Long teacherId) {
         // 1. 查询该教师的所有任务ID
-        LambdaQueryWrapper<Task> taskWrapper = new LambdaQueryWrapper<>();
-        taskWrapper.eq(Task::getTeacherId, teacherId);
-        List<Task> tasks = taskMapper.selectList(taskWrapper);
+        List<Task> tasks = taskMapper.selectList(null).stream()
+                .filter(task -> TaskTeacherUtils.containsTeacher(task, teacherId))
+                .collect(Collectors.toList());
         if (tasks.isEmpty()) {
             return new ArrayList<>();
         }
@@ -425,30 +440,31 @@ public class ReviewRecordService {
             }
         }
 
-        notificationService.createNotification(
-                task.getTeacherId(),
-                task.getId(),
-                "REVIEW_RESULT",
-                notificationTitle,
-                notificationContent
-        );
+        for (User teacher : getTaskTeachers(task)) {
+            notificationService.createNotification(
+                    teacher.getId(),
+                    task.getId(),
+                    "REVIEW_RESULT",
+                    notificationTitle,
+                    notificationContent
+            );
 
-        User teacher = userMapper.selectById(task.getTeacherId());
-        if (teacher != null && teacher.getEmail() != null && !teacher.getEmail().isEmpty()) {
-            String subject;
-            String content;
-            if ("APPROVED".equals(reviewStatus)) {
-                subject = itemCodes.size() > 1
-                        ? "【专业认证备案】批量审核通过 - " + courseName
-                        : "【专业认证备案】审核通过 - " + courseName + " - " + itemsText;
-                content = buildApprovedBatchEmailContent(courseName, itemsText, comment, score);
-            } else {
-                subject = itemCodes.size() > 1
-                        ? "【专业认证备案】批量需修改 - " + courseName
-                        : "【专业认证备案】需修改 - " + courseName + " - " + itemsText;
-                content = buildRejectedBatchEmailContent(courseName, itemsText, suggestions);
+            if (teacher.getEmail() != null && !teacher.getEmail().isEmpty()) {
+                String subject;
+                String content;
+                if ("APPROVED".equals(reviewStatus)) {
+                    subject = itemCodes.size() > 1
+                            ? "【专业认证备案】批量审核通过 - " + courseName
+                            : "【专业认证备案】审核通过 - " + courseName + " - " + itemsText;
+                    content = buildApprovedBatchEmailContent(courseName, itemsText, comment, score);
+                } else {
+                    subject = itemCodes.size() > 1
+                            ? "【专业认证备案】批量需修改 - " + courseName
+                            : "【专业认证备案】需修改 - " + courseName + " - " + itemsText;
+                    content = buildRejectedBatchEmailContent(courseName, itemsText, suggestions);
+                }
+                emailService.sendHtmlMail(teacher.getEmail(), subject, content);
             }
-            emailService.sendHtmlMail(teacher.getEmail(), subject, content);
         }
     }
 

@@ -307,7 +307,7 @@ async function loadTasks() {
     const [sortField, sortOrder] = sortBy.split('_');
 
     $('#tasksTableBody').html(`
-        <tr><td colspan="6" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>
+        <tr><td colspan="7" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>
     `);
 
     try {
@@ -323,18 +323,18 @@ async function loadTasks() {
         if (data.code === 200) {
             renderTasks(data.data || []);
         } else {
-            $('#tasksTableBody').html(`<tr><td colspan="6" class="loading-row"><i class="fas fa-exclamation-circle"></i> ${data.msg || '加载失败'}</td></tr>`);
+            $('#tasksTableBody').html(`<tr><td colspan="7" class="loading-row"><i class="fas fa-exclamation-circle"></i> ${data.msg || '加载失败'}</td></tr>`);
         }
     } catch (error) {
         console.error('加载任务失败:', error);
-        $('#tasksTableBody').html('<tr><td colspan="6" class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误，请稍后重试</td></tr>');
+        $('#tasksTableBody').html('<tr><td colspan="7" class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误，请稍后重试</td></tr>');
     }
 }
 
 function renderTasks(tasks) {
     const tbody = $('#tasksTableBody');
     if (!tasks || tasks.length === 0) {
-        tbody.html('<tr><td colspan="6" class="loading-row"><i class="fas fa-inbox"></i> 暂无任务</td></tr>');
+        tbody.html('<tr><td colspan="7" class="loading-row"><i class="fas fa-inbox"></i> 暂无任务</td></tr>');
         return;
     }
     let html = '';
@@ -342,6 +342,7 @@ function renderTasks(tasks) {
         html += `
             <tr>
                 <td>${task.courseName || '-'}</td>
+                <td>${task.courseCode || '-'}</td>
                 <td>${task.teachingClass || '-'}</td>
                 <td>${task.assessorName || '-'}</td>
                 <td>${formatDateTime(task.deadline)}</td>
@@ -384,6 +385,7 @@ async function viewTaskDetail(taskId) {
             currentTaskReviewProjects = task.reviewProjects || [];
 
             $('#detailCourseName').text(task.courseName || '-');
+            $('#detailCourseCode').text(task.courseCode || '-');
             $('#detailTeachingClass').text(task.teachingClass || '-');
             $('#detailAssessor').text(task.assessorName || '-');
             $('#detailDeadline').text(formatDateTime(task.deadline));
@@ -850,7 +852,7 @@ async function loadReviews() {
     const teacherId = getCurrentTeacherId();
     if (!teacherId) return;
 
-    $('#reviewsTableBody').html('<tr><td colspan="7" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>');
+    $('#reviewsTableBody').html('<tr><td colspan="8" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>');
 
     try {
         // 1. 获取教师的任务列表（用于填充筛选下拉框）
@@ -877,7 +879,7 @@ async function loadReviews() {
             // 5. 渲染表格
             renderReviews(allReviews);
         } else {
-            $('#reviewsTableBody').html(`<tr><td colspan="7" class="loading-row"><i class="fas fa-exclamation-circle"></i> ${reviewsData.msg || '加载失败'}</td></tr>`);
+            $('#reviewsTableBody').html(`<tr><td colspan="8" class="loading-row"><i class="fas fa-exclamation-circle"></i> ${reviewsData.msg || '加载失败'}</td></tr>`);
         }
 
         // 6. 更新任务筛选下拉框
@@ -889,14 +891,14 @@ async function loadReviews() {
 
     } catch (error) {
         console.error('加载审核记录失败:', error);
-        $('#reviewsTableBody').html('<tr><td colspan="7" class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</td></tr>');
+        $('#reviewsTableBody').html('<tr><td colspan="8" class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</td></tr>');
     }
 }
 
 function renderReviews(reviews) {
     const tbody = $('#reviewsTableBody');
     if (!reviews || reviews.length === 0) {
-        tbody.html('<tr><td colspan="7" class="loading-row"><i class="fas fa-inbox"></i> 暂无审核记录</td></tr>');
+        tbody.html('<tr><td colspan="8" class="loading-row"><i class="fas fa-inbox"></i> 暂无审核记录</td></tr>');
         return;
     }
 
@@ -905,6 +907,7 @@ function renderReviews(reviews) {
         html += `
             <tr>
                 <td>${r.courseName || '-'}</td>
+                <td>${r.courseCode || '-'}</td>
                 <td>${r.teachingClass || '-'}</td>
                 <td>${formatDateTime(r.reviewTime)}</td>
                 <td><span class="status-badge ${r.reviewStatus === 'APPROVED' ? 'approved' : 'need-revision'}">${r.reviewStatusDesc || (r.reviewStatus === 'APPROVED' ? '审核通过' : '需修改')}</span></td>

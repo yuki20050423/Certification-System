@@ -23,7 +23,9 @@ import com.swjtu.certification.util.GetCourseList;
 import com.swjtu.certification.util.GetTeacherList;
 import com.swjtu.certification.util.ReadWordToCsvUtil;
 import com.swjtu.certification.util.SemesterUtils;
+import com.swjtu.certification.util.TaskTeacherUtils;
 import com.swjtu.certification.util.TaskItemUtils;
+import com.swjtu.certification.util.TeacherNameUtils;
 import com.swjtu.certification.vo.CourseVO;
 import com.swjtu.certification.vo.PageResult;
 import com.swjtu.certification.vo.TaskVO;
@@ -292,6 +294,7 @@ public class AdminService {
         for (BatchTaskDTO.TaskItem item : batchTaskDTO.getTasks()) {
             Teacher teacherEntity = null;
             User teacher = null;
+            List<User> taskTeachers = new ArrayList<>();
 
             if (item.getIsManual() != null && item.getIsManual()) {
                 System.out.println("处理手动添加的任务");
@@ -300,6 +303,9 @@ public class AdminService {
 
                 if (item.getTeacherId() != null) {
                     teacher = userMapper.selectById(item.getTeacherId());
+                    if (teacher != null) {
+                        taskTeachers.add(teacher);
+                    }
                 }
             } else {
                 System.out.println("处理从课程列表选择的任务");
@@ -313,6 +319,11 @@ public class AdminService {
                 if (teacher == null) {
                     throw new RuntimeException("教师不存在，ID: " + item.getTeacherId());
                 }
+                taskTeachers = resolveTeacherUsersForTeacherRecord(teacherEntity, item.getTeacherId());
+            }
+
+            if (taskTeachers.isEmpty() && teacher != null) {
+                taskTeachers.add(teacher);
             }
 
             // 审核员可空，仅当存在时进行校验
@@ -321,7 +332,7 @@ public class AdminService {
                 if (assessor == null) {
                     throw new RuntimeException("审核员不存在，ID: " + item.getAssessorId());
                 }
-                if (teacher != null && teacher.getId().equals(item.getAssessorId())) {
+                if (taskTeachers.stream().anyMatch(user -> user.getId().equals(item.getAssessorId()))) {
                     throw new RuntimeException("审核员不能是教师本人");
                 }
             }
@@ -343,7 +354,7 @@ public class AdminService {
             // 创建任务
             Task task = new Task();
             task.setCourseId(item.getCourseId());
-            task.setTeacherId(item.getTeacherId());
+            TaskTeacherUtils.assignTeacherIds(task, taskTeachers.stream().map(User::getId).collect(Collectors.toList()));
             task.setAssessorId(item.getAssessorId());   // 允许 null
             task.setDeadline(item.getDeadline());
             task.setDescription(item.getDescription());
@@ -364,13 +375,15 @@ public class AdminService {
                     teachingClass,
                     item.getDeadline().toString()
             );
-            notificationService.createNotification(
-                    teacher.getId(),
-                    task.getId(),
-                    "NEW_TASK",
-                    teacherNotificationTitle,
-                    teacherNotificationContent
-            );
+            for (User taskTeacher : taskTeachers) {
+                notificationService.createNotification(
+                        taskTeacher.getId(),
+                        task.getId(),
+                        "NEW_TASK",
+                        teacherNotificationTitle,
+                        teacherNotificationContent
+                );
+            }
 
             // 给审核员发送通知（仅当存在审核员时）
             if (item.getAssessorId() != null) {
@@ -379,7 +392,7 @@ public class AdminService {
                         "您收到了一个新的审核任务。课程：%s，教学班：%s，教师：%s，截止日期：%s。请及时进行审核。",
                         courseName,
                         teachingClass,
-                        teacher.getRealName(),
+                        joinTeacherNames(taskTeachers),
                         item.getDeadline().toString()
                 );
                 notificationService.createNotification(
@@ -392,25 +405,27 @@ public class AdminService {
             }
 
             // 发送邮件给教师
-            if (teacher != null && teacher.getEmail() != null && !teacher.getEmail().isEmpty()) {
-                String subject = "【专业认证备案】新任务通知 - " + teacherEntity.getCourseName();
-                String emailContent = buildTeacherEmailContent(
-                        teacherEntity.getCourseName(),
-                        teacherEntity.getTeachingClass(),
-                        item.getDeadline().toString()
-                );
-                emailService.sendHtmlMail(teacher.getEmail(), subject, emailContent);
+            for (User taskTeacher : taskTeachers) {
+                if (taskTeacher.getEmail() != null && !taskTeacher.getEmail().isEmpty()) {
+                    String subject = "【专业认证备案】新任务通知 - " + courseName;
+                    String emailContent = buildTeacherEmailContent(
+                            courseName,
+                            teachingClass,
+                            item.getDeadline().toString()
+                    );
+                    emailService.sendHtmlMail(taskTeacher.getEmail(), subject, emailContent);
+                }
             }
 
             // 发送邮件给审核员（如果有）
             if (item.getAssessorId() != null) {
                 User assessor = userMapper.selectById(item.getAssessorId());
                 if (assessor != null && assessor.getEmail() != null && !assessor.getEmail().isEmpty()) {
-                    String subject = "【专业认证备案】新审核任务通知 - " + teacherEntity.getCourseName();
+                    String subject = "【专业认证备案】新审核任务通知 - " + courseName;
                     String emailContent = buildAssessorEmailContent(
-                            teacherEntity.getCourseName(),
-                            teacherEntity.getTeachingClass(),
-                            teacher.getRealName(),
+                            courseName,
+                            teachingClass,
+                            joinTeacherNames(taskTeachers),
                             item.getDeadline().toString()
                     );
                     emailService.sendHtmlMail(assessor.getEmail(), subject, emailContent);
@@ -465,7 +480,8 @@ public class AdminService {
 
         TaskVO taskVO = convertToTaskVO(task);
 
-        if (task.getTeacherId() != null) {
+        List<User> taskTeachers = getTaskTeachers(task);
+        if (!taskTeachers.isEmpty()) {
             String teacherNotificationTitle = "任务催办提醒";
             String teacherNotificationContent = String.format(
                     "请尽快处理备案任务：课程《%s》%s，当前状态：%s，截止日期：%s。",
@@ -474,21 +490,22 @@ public class AdminService {
                     taskVO.getStatusDesc() == null ? task.getStatus() : taskVO.getStatusDesc(),
                     task.getDeadline() == null ? "-" : task.getDeadline().toString()
             );
-            notificationService.createNotification(
-                    task.getTeacherId(),
-                    task.getId(),
-                    "TASK_REMINDER",
-                    teacherNotificationTitle,
-                    teacherNotificationContent
-            );
+            for (User taskTeacher : taskTeachers) {
+                notificationService.createNotification(
+                        taskTeacher.getId(),
+                        task.getId(),
+                        "TASK_REMINDER",
+                        teacherNotificationTitle,
+                        teacherNotificationContent
+                );
+            }
 
             String courseName = taskVO.getCourseName();
             String teachingClass = taskVO.getTeachingClass();
 
 // 给教师发邮件
-            if (task.getTeacherId() != null) {
-                User teacher = userMapper.selectById(task.getTeacherId());
-                if (teacher != null && teacher.getEmail() != null && !teacher.getEmail().isEmpty()) {
+            for (User teacher : taskTeachers) {
+                if (teacher.getEmail() != null && !teacher.getEmail().isEmpty()) {
                     String subject = "【专业认证备案】催办提醒 - " + courseName;
                     String content = buildRemindEmailContent(courseName, teachingClass, taskVO.getStatusDesc(), task.getDeadline().toString());
                     emailService.sendHtmlMail(teacher.getEmail(), subject, content);
@@ -654,6 +671,9 @@ public class AdminService {
         Teacher teacherEntity = null;
         if (task.getTeacherId() != null) {
             teacherEntity = teacherMapper.selectById(task.getCourseId());
+            if (teacherEntity != null && !matchesTeacherRecord(task, teacherEntity)) {
+                teacherEntity = null;
+            }
         }
         if (teacherEntity != null) {
             // 教学班信息
@@ -684,13 +704,11 @@ public class AdminService {
             }
         }
 
-        // 获取教师信息（如果有）
-        if (task.getTeacherId() != null) {
-            User teacher = userMapper.selectById(task.getTeacherId());
-            if (teacher != null) {
-                vo.setTeacherWorkId(teacher.getWorkId());
-                vo.setTeacherName(teacher.getRealName());
-            }
+        // 获取教师信息（支持多教师）
+        List<User> taskTeachers = getTaskTeachers(task);
+        if (!taskTeachers.isEmpty()) {
+            vo.setTeacherWorkId(joinTeacherWorkIds(taskTeachers));
+            vo.setTeacherName(joinTeacherNames(taskTeachers));
         } else {
             vo.setTeacherName("未分配教师");
         }
@@ -844,7 +862,11 @@ public class AdminService {
         }
 
         LambdaQueryWrapper<Task> taskWrapper = new LambdaQueryWrapper<>();
-        taskWrapper.eq(Task::getTeacherId, id).or().eq(Task::getAssessorId, id);
+        taskWrapper.and(w -> w.eq(Task::getTeacherId, id)
+                .or().eq(Task::getTeacherId2, id)
+                .or().eq(Task::getTeacherId3, id)
+                .or().eq(Task::getTeacherId4, id)
+                .or().eq(Task::getAssessorId, id));
         if (taskMapper.selectCount(taskWrapper) > 0) {
             throw new RuntimeException("该用户有关联任务，无法删除");
         }
@@ -1150,59 +1172,27 @@ public class AdminService {
                 System.out.println("教师不存在，teacherId: " + teacherId);
                 continue;
             }
-            
-            LambdaQueryWrapper<User> userWrapper = new LambdaQueryWrapper<>();
-            userWrapper.eq(User::getRole, "TEACHER");
-            userWrapper.eq(User::getRealName, teacherEntity.getTeacherName());
-            User teacher = userMapper.selectOne(userWrapper);
 
-            if (teacher == null) {
-                System.out.println("user表中不存在，准备创建: " + teacherEntity.getTeacherName());
-                String workId = generateWorkId(teacherEntity.getTeacherName());
-                String username = "teacher_" + workId;
-
-                LambdaQueryWrapper<User> usernameWrapper = new LambdaQueryWrapper<>();
-                usernameWrapper.eq(User::getUsername, username);
-                if (userMapper.selectCount(usernameWrapper) > 0) {
-                    username = username + "_" + System.currentTimeMillis();
-                }
-
-                LambdaQueryWrapper<User> workIdWrapper = new LambdaQueryWrapper<>();
-                workIdWrapper.eq(User::getWorkId, workId);
-                if (userMapper.selectCount(workIdWrapper) > 0) {
-                    workId = workId + System.currentTimeMillis();
-                }
-
-                teacher = new User();
-                teacher.setUsername(username);
-                teacher.setWorkId(workId);
-                teacher.setRealName(teacherEntity.getTeacherName());
-                teacher.setEmail(generateEmail(teacherEntity.getTeacherName()));
-                teacher.setPhone(generatePhone());
-                teacher.setPassword(passwordEncoder.encode("123456"));
-                teacher.setRole("TEACHER");
-                teacher.setDepartment(teacherEntity.getDepartment() != null ? teacherEntity.getDepartment() : "未知院系");
-                teacher.setTitle(teacherEntity.getTitle() != null ? teacherEntity.getTitle() : "教师");
-                teacher.setStatus(1);
-                teacher.setCreateTime(LocalDateTime.now());
-                teacher.setUpdateTime(LocalDateTime.now());
-                userMapper.insert(teacher);
-                System.out.println("创建user记录成功，user.id: " + teacher.getId() + ", 姓名: " + teacher.getRealName());
-            } else {
-                System.out.println("user表中已存在，user.id: " + teacher.getId() + ", 姓名: " + teacher.getRealName());
+            List<User> teachers = resolveTeacherUsersForTeacherRecord(teacherEntity, null);
+            if (teachers.isEmpty()) {
+                continue;
             }
-            
+
             UserVO vo = new UserVO();
-            vo.setId(teacher.getId());
+            vo.setId(teachers.get(0).getId());
             vo.setTeacherId(teacherId);
-            vo.setUsername(teacher.getUsername());
-            vo.setRealName(teacher.getRealName());
-            vo.setTitle(teacher.getTitle());
-            vo.setDepartment(teacher.getDepartment());
+            vo.setUsername(teachers.get(0).getUsername());
+            vo.setRealName(joinTeacherNames(teachers));
+            vo.setWorkId(joinTeacherWorkIds(teachers));
+            vo.setTitle(teacherEntity.getTitle());
+            vo.setDepartment(teacherEntity.getDepartment());
             vo.setRole("TEACHER");
             vo.setExists(true);
             vo.setTeachingClass(teacherEntity.getTeachingClass());
             vo.setCourseName(teacherEntity.getCourseName());
+            vo.setParticipantUserIds(teachers.stream().map(User::getId).collect(Collectors.toList()));
+            vo.setParticipantTeacherNames(joinTeacherNames(teachers));
+            vo.setParticipantWorkIds(joinTeacherWorkIds(teachers));
             System.out.println("返回UserVO - ID: " + vo.getId() + ", RealName: " + vo.getRealName() + ", TeachingClass: " + vo.getTeachingClass());
             result.add(vo);
         }
@@ -1811,6 +1801,7 @@ public class AdminService {
         // 初始化清单
         List<Map<String, String>> newTeacherInfo = new ArrayList<>();
         List<Map<String, String>> existingTeacherInfo = new ArrayList<>();
+        Set<String> accountSheetKeys = new HashSet<>();
 
         // 处理未来课程教师（如果有）
         Long futureTeacherId = null;
@@ -1844,15 +1835,28 @@ public class AdminService {
         List<BatchTaskDTO.TaskItem> taskItems = new ArrayList<>();
 
         for (UserVO vo : teacherUserVOs) {
-            boolean isNew = !existingTeacherNames.contains(vo.getRealName());
-            Map<String, String> info = new HashMap<>();
-            info.put("name", vo.getRealName());
-            info.put("workId", vo.getWorkId());
-            if (isNew) {
-                info.put("password", "123456");
-                newTeacherInfo.add(info);
-            } else {
-                existingTeacherInfo.add(info);
+            List<Long> participantIds = vo.getParticipantUserIds() == null || vo.getParticipantUserIds().isEmpty()
+                    ? List.of(vo.getId())
+                    : vo.getParticipantUserIds();
+            for (Long participantId : participantIds) {
+                User participant = userMapper.selectById(participantId);
+                if (participant == null) {
+                    continue;
+                }
+                String accountKey = participant.getWorkId();
+                if (!accountSheetKeys.add(accountKey)) {
+                    continue;
+                }
+                boolean isNew = !existingTeacherNames.contains(participant.getRealName());
+                Map<String, String> info = new HashMap<>();
+                info.put("name", participant.getRealName());
+                info.put("workId", participant.getWorkId());
+                if (isNew) {
+                    info.put("password", "123456");
+                    newTeacherInfo.add(info);
+                } else {
+                    existingTeacherInfo.add(info);
+                }
             }
 
             BatchTaskDTO.TaskItem item = new BatchTaskDTO.TaskItem();
@@ -2390,6 +2394,11 @@ public class AdminService {
      * 根据教师姓名或工号获取或创建教师用户
      */
     private Long getOrCreateTeacherUser(String teacherInput) {
+        User teacher = getOrCreateTeacherUserEntity(teacherInput);
+        return teacher != null ? teacher.getId() : null;
+    }
+
+    private User getOrCreateTeacherUserEntity(String teacherInput) {
         if (teacherInput == null || teacherInput.trim().isEmpty()) {
             return null;
         }
@@ -2400,7 +2409,7 @@ public class AdminService {
         wrapperByWorkId.eq(User::getWorkId, teacherInput);
         User user = userMapper.selectOne(wrapperByWorkId);
         if (user != null && "TEACHER".equals(user.getRole())) {
-            return user.getId();
+            return user;
         }
 
         // 按姓名查找
@@ -2409,7 +2418,7 @@ public class AdminService {
                 .eq(User::getRole, "TEACHER");
         user = userMapper.selectOne(wrapperByName);
         if (user != null) {
-            return user.getId();
+            return user;
         }
 
         // 不存在，创建新教师
@@ -2445,7 +2454,68 @@ public class AdminService {
         newTeacher.setUpdateTime(LocalDateTime.now());
         userMapper.insert(newTeacher);
 
-        return newTeacher.getId();
+        return newTeacher;
+    }
+
+    private List<User> resolveTeacherUsersByRawNames(String rawTeacherNames) {
+        List<User> teachers = TeacherNameUtils.splitTeacherNames(rawTeacherNames).stream()
+                .map(this::getOrCreateTeacherUserEntity)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (teachers.size() > 4) {
+            return teachers.subList(0, 4);
+        }
+        return teachers;
+    }
+
+    private List<User> resolveTeacherUsersForTeacherRecord(Teacher teacherEntity, Long preferredTeacherId) {
+        List<User> teachers = resolveTeacherUsersByRawNames(teacherEntity != null ? teacherEntity.getTeacherName() : null);
+        if (preferredTeacherId != null) {
+            User preferredTeacher = userMapper.selectById(preferredTeacherId);
+            if (preferredTeacher != null) {
+                teachers.removeIf(user -> user.getId().equals(preferredTeacherId));
+                teachers.add(0, preferredTeacher);
+            }
+        }
+        if (teachers.size() > 4) {
+            return teachers.subList(0, 4);
+        }
+        return teachers;
+    }
+
+    private List<User> getTaskTeachers(Task task) {
+        return TaskTeacherUtils.getTeacherIds(task).stream()
+                .map(userMapper::selectById)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+    }
+
+    private String joinTeacherNames(List<User> teachers) {
+        return teachers.isEmpty()
+                ? "未分配教师"
+                : teachers.stream().map(User::getRealName).filter(Objects::nonNull).collect(Collectors.joining(" "));
+    }
+
+    private String joinTeacherWorkIds(List<User> teachers) {
+        return teachers.stream()
+                .map(User::getWorkId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.joining(" "));
+    }
+
+    private boolean matchesTeacherRecord(Task task, Teacher teacherEntity) {
+        if (task == null || teacherEntity == null) {
+            return false;
+        }
+        List<String> teacherNames = TeacherNameUtils.splitTeacherNames(teacherEntity.getTeacherName());
+        if (teacherNames.isEmpty()) {
+            return false;
+        }
+        Set<String> taskTeacherNames = getTaskTeachers(task).stream()
+                .map(User::getRealName)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        return teacherNames.stream().anyMatch(taskTeacherNames::contains);
     }
 
     private TaskVO convertToTaskVO(Task task) {
@@ -2471,11 +2541,8 @@ public class AdminService {
         if (task.getTeacherId() != null) {
             teacherEntity = teacherMapper.selectById(task.getCourseId());
             // 校验：如果查到的教学班与任务的教师姓名不一致，则视为无效（ID冲突）
-            if (teacherEntity != null) {
-                User taskTeacher = userMapper.selectById(task.getTeacherId());
-                if (taskTeacher != null && !teacherEntity.getTeacherName().equals(taskTeacher.getRealName())) {
-                    teacherEntity = null; // 教师姓名不匹配，回退到 course 表
-                }
+            if (teacherEntity != null && !matchesTeacherRecord(task, teacherEntity)) {
+                teacherEntity = null; // 教师姓名不匹配，回退到 course 表
             }
         }
 
@@ -2508,11 +2575,11 @@ public class AdminService {
             }
         }
 
-        // 教师信息
-        User teacher = userMapper.selectById(task.getTeacherId());
-        if (teacher != null) {
-            vo.setTeacherWorkId(teacher.getWorkId());
-            vo.setTeacherName(teacher.getRealName());
+        // 教师信息（支持多教师）
+        List<User> taskTeachers = getTaskTeachers(task);
+        if (!taskTeachers.isEmpty()) {
+            vo.setTeacherWorkId(joinTeacherWorkIds(taskTeachers));
+            vo.setTeacherName(joinTeacherNames(taskTeachers));
         }
 
         // 审核员信息
@@ -2623,14 +2690,16 @@ public class AdminService {
                 if (course == null) continue;
 
                 // 获取教师信息
-                User teacher = userMapper.selectById(task.getTeacherId());
-                if (teacher == null) continue;
+                List<User> taskTeachers = getTaskTeachers(task);
+                if (taskTeachers.isEmpty()) continue;
+                String taskTeacherNames = joinTeacherNames(taskTeachers);
+                String taskTeacherWorkIds = joinTeacherWorkIds(taskTeachers);
 
                 // 检查筛选条件
                 if (standardSemester != null && !standardSemester.equals(course.getSemester())) continue;
                 if (major != null && !major.isEmpty() && !major.equals(course.getMajor())) continue;
                 if (courseName != null && !courseName.isEmpty() && !course.getCourseName().contains(courseName)) continue;
-                if (teacherName != null && !teacherName.isEmpty() && !teacher.getRealName().contains(teacherName)) continue;
+                if (teacherName != null && !teacherName.isEmpty() && !taskTeacherNames.contains(teacherName)) continue;
                 if (status != null && !status.isEmpty() && !status.equals(task.getStatus())) continue;
 
                 ArchiveTaskVO vo = new ArchiveTaskVO();
@@ -2639,8 +2708,8 @@ public class AdminService {
                 vo.setCourseName(course.getCourseName());
                 vo.setCourseCode("");
                 vo.setTeacherId(task.getTeacherId());
-                vo.setTeacherWorkId(teacher.getWorkId());
-                vo.setTeacherName(teacher.getRealName());
+                vo.setTeacherWorkId(taskTeacherWorkIds);
+                vo.setTeacherName(taskTeacherNames);
                 vo.setAssessorId(task.getAssessorId());
                 if (task.getAssessorId() != null) {
                     User assessor = userMapper.selectById(task.getAssessorId());
@@ -2676,14 +2745,16 @@ public class AdminService {
                 result.add(vo);
             } else {
                 // 从教学班获取信息
-                User teacher = userMapper.selectById(task.getTeacherId());
-                if (teacher == null) continue;
+                List<User> taskTeachers = getTaskTeachers(task);
+                if (taskTeachers.isEmpty()) continue;
+                String taskTeacherNames = joinTeacherNames(taskTeachers);
+                String taskTeacherWorkIds = joinTeacherWorkIds(taskTeachers);
 
                 // 检查筛选条件
                 if (standardSemester != null && !standardSemester.equals(teacherEntity.getSemester())) continue;
                 if (major != null && !major.isEmpty() && !major.equals(teacherEntity.getDepartment())) continue;
                 if (courseName != null && !courseName.isEmpty() && !teacherEntity.getCourseName().contains(courseName)) continue;
-                if (teacherName != null && !teacherName.isEmpty() && !teacher.getRealName().contains(teacherName)) continue;
+                if (teacherName != null && !teacherName.isEmpty() && !taskTeacherNames.contains(teacherName)) continue;
                 if (status != null && !status.isEmpty() && !status.equals(task.getStatus())) continue;
 
                 ArchiveTaskVO vo = new ArchiveTaskVO();
@@ -2693,8 +2764,8 @@ public class AdminService {
                 vo.setCourseCode(teacherEntity.getCourseCode());
                 vo.setTeachingClass(teacherEntity.getTeachingClass());
                 vo.setTeacherId(task.getTeacherId());
-                vo.setTeacherWorkId(teacher.getWorkId());
-                vo.setTeacherName(teacher.getRealName());
+                vo.setTeacherWorkId(taskTeacherWorkIds);
+                vo.setTeacherName(taskTeacherNames);
                 vo.setAssessorId(task.getAssessorId());
                 if (task.getAssessorId() != null) {
                     User assessor = userMapper.selectById(task.getAssessorId());
@@ -2773,14 +2844,13 @@ public class AdminService {
         String zipFileName;
         if (firstTask != null) {
             Teacher firstTeacherEntity = teacherMapper.selectById(firstTask.getCourseId());
-            User firstTeacherUser = userMapper.selectById(firstTask.getTeacherId());
+            List<User> firstTaskTeachers = getTaskTeachers(firstTask);
 
             String semester = firstTeacherEntity != null ? firstTeacherEntity.getSemester() : "";
             String courseName = firstTeacherEntity != null ? firstTeacherEntity.getCourseName() : "";
-            String teacherName = firstTeacherEntity != null ? firstTeacherEntity.getTeacherName() : "";
-            if (firstTeacherUser != null && firstTeacherUser.getRealName() != null && !firstTeacherUser.getRealName().isEmpty()) {
-                teacherName = firstTeacherUser.getRealName();
-            }
+            String teacherName = !firstTaskTeachers.isEmpty()
+                    ? joinTeacherNames(firstTaskTeachers)
+                    : (firstTeacherEntity != null ? firstTeacherEntity.getTeacherName() : "");
 
             // 将学期转换为导出格式（如 2025-2026-2 → 2025-2026学年第二学期）
             String exportSemester = SemesterUtils.toExportFormat(semester);
@@ -2824,10 +2894,9 @@ public class AdminService {
                     teacherName = teacherEntity.getTeacherName();
                 }
 
-                // 获取User表的教师姓名（如果Teacher表的teacherName为空）
-                User teacherUser = userMapper.selectById(task.getTeacherId());
-                if (teacherUser != null && teacherUser.getRealName() != null && !teacherUser.getRealName().isEmpty()) {
-                    teacherName = teacherUser.getRealName();
+                List<User> taskTeachers = getTaskTeachers(task);
+                if (!taskTeachers.isEmpty()) {
+                    teacherName = joinTeacherNames(taskTeachers);
                 }
 
                 // 将学期转换为导出格式（如 2025-2026-2 → 2025-2026学年第二学期）
@@ -2911,9 +2980,9 @@ public class AdminService {
                     teacherName = teacherEntity.getTeacherName();
                 }
 
-                User teacherUser = userMapper.selectById(task.getTeacherId());
-                if (teacherUser != null && teacherUser.getRealName() != null && !teacherUser.getRealName().isEmpty()) {
-                    teacherName = teacherUser.getRealName();
+                List<User> taskTeachers = getTaskTeachers(task);
+                if (!taskTeachers.isEmpty()) {
+                    teacherName = joinTeacherNames(taskTeachers);
                 }
 
                 // 将学期转换为导出格式（如 2025-2026-2 → 2025-2026学年第二学期）

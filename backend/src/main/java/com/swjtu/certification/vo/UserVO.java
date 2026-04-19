@@ -2,6 +2,8 @@ package com.swjtu.certification.vo;
 
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 用户视图对象
  */
@@ -23,4 +25,7 @@ public class UserVO {
     private String teachingClass;
     private String courseName;
     private String message;
+    private List<Long> participantUserIds;
+    private String participantTeacherNames;
+    private String participantWorkIds;
 }

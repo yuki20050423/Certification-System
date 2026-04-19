@@ -14,7 +14,9 @@ import com.swjtu.certification.mapper.TaskMapper;
 import com.swjtu.certification.mapper.TeacherMapper;
 import com.swjtu.certification.mapper.UserMapper;
 import com.swjtu.certification.mapper.FileMapper;
+import com.swjtu.certification.util.TaskTeacherUtils;
 import com.swjtu.certification.util.TaskItemUtils;
+import com.swjtu.certification.util.TeacherNameUtils;
 import com.swjtu.certification.vo.ReviewProjectVO;
 import com.swjtu.certification.vo.TeacherTaskStatisticsVO;
 import com.swjtu.certification.vo.AssessorTaskVO;
@@ -50,6 +52,119 @@ public class TaskService {
     private final ReviewWorkflowService reviewWorkflowService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final EmailService emailService;
+
+    private LambdaQueryWrapper<Task> applyTeacherTaskFilter(LambdaQueryWrapper<Task> wrapper, Long teacherId) {
+        return wrapper.and(w -> w.eq(Task::getTeacherId, teacherId)
+                .or().eq(Task::getTeacherId2, teacherId)
+                .or().eq(Task::getTeacherId3, teacherId)
+                .or().eq(Task::getTeacherId4, teacherId));
+    }
+
+    private List<User> getTaskTeachers(Task task) {
+        return TaskTeacherUtils.getTeacherIds(task).stream()
+                .map(userMapper::selectById)
+                .filter(user -> user != null)
+                .collect(Collectors.toList());
+    }
+
+    private String joinTeacherNames(Task task) {
+        List<User> teachers = getTaskTeachers(task);
+        return teachers.isEmpty()
+                ? "未分配教师"
+                : teachers.stream().map(User::getRealName).filter(name -> name != null && !name.isEmpty()).collect(Collectors.joining(" "));
+    }
+
+    private String joinTeacherWorkIds(Task task) {
+        return getTaskTeachers(task).stream()
+                .map(User::getWorkId)
+                .filter(workId -> workId != null && !workId.isEmpty())
+                .collect(Collectors.joining(" "));
+    }
+
+    private User getOrCreateTeacherUserEntity(String teacherInput) {
+        if (teacherInput == null || teacherInput.trim().isEmpty()) {
+            return null;
+        }
+        String normalizedInput = teacherInput.trim();
+
+        LambdaQueryWrapper<User> wrapperByWorkId = new LambdaQueryWrapper<>();
+        wrapperByWorkId.eq(User::getWorkId, normalizedInput);
+        User user = userMapper.selectOne(wrapperByWorkId);
+        if (user != null && "TEACHER".equals(user.getRole())) {
+            return user;
+        }
+
+        LambdaQueryWrapper<User> wrapperByName = new LambdaQueryWrapper<>();
+        wrapperByName.eq(User::getRealName, normalizedInput)
+                .eq(User::getRole, "TEACHER");
+        user = userMapper.selectOne(wrapperByName);
+        if (user != null) {
+            return user;
+        }
+
+        String workId = normalizedInput.matches("\\d+") ? normalizedInput : generateWorkId(normalizedInput);
+        LambdaQueryWrapper<User> workIdWrapper = new LambdaQueryWrapper<>();
+        workIdWrapper.eq(User::getWorkId, workId);
+        if (userMapper.selectCount(workIdWrapper) > 0) {
+            workId = workId + System.currentTimeMillis();
+        }
+
+        String username = "teacher_" + workId;
+        LambdaQueryWrapper<User> usernameWrapper = new LambdaQueryWrapper<>();
+        usernameWrapper.eq(User::getUsername, username);
+        if (userMapper.selectCount(usernameWrapper) > 0) {
+            username = username + "_" + System.currentTimeMillis();
+        }
+
+        User newTeacher = new User();
+        newTeacher.setUsername(username);
+        newTeacher.setWorkId(workId);
+        newTeacher.setRealName(normalizedInput);
+        newTeacher.setEmail(generateEmail(normalizedInput));
+        newTeacher.setPhone(generatePhone());
+        newTeacher.setPassword(passwordEncoder.encode("123456"));
+        newTeacher.setRole("TEACHER");
+        newTeacher.setStatus(1);
+        newTeacher.setCreateTime(LocalDateTime.now());
+        newTeacher.setUpdateTime(LocalDateTime.now());
+        userMapper.insert(newTeacher);
+        return newTeacher;
+    }
+
+    private List<User> resolveTeacherUsersByRawNames(String rawTeacherNames) {
+        List<User> teachers = TeacherNameUtils.splitTeacherNames(rawTeacherNames).stream()
+                .map(this::getOrCreateTeacherUserEntity)
+                .filter(user -> user != null)
+                .collect(Collectors.toList());
+        return teachers.size() > 4 ? teachers.subList(0, 4) : teachers;
+    }
+
+    private List<User> resolveTeacherUsersForTeacherRecord(Teacher teacherEntity, Long preferredTeacherId) {
+        List<User> teachers = resolveTeacherUsersByRawNames(teacherEntity != null ? teacherEntity.getTeacherName() : null);
+        if (preferredTeacherId != null) {
+            User preferredTeacher = userMapper.selectById(preferredTeacherId);
+            if (preferredTeacher != null) {
+                teachers.removeIf(user -> user.getId().equals(preferredTeacherId));
+                teachers.add(0, preferredTeacher);
+            }
+        }
+        return teachers.size() > 4 ? teachers.subList(0, 4) : teachers;
+    }
+
+    private boolean matchesTeacherRecord(Task task, Teacher teacherEntity) {
+        if (task == null || teacherEntity == null) {
+            return false;
+        }
+        List<String> teacherNames = TeacherNameUtils.splitTeacherNames(teacherEntity.getTeacherName());
+        if (teacherNames.isEmpty()) {
+            return false;
+        }
+        Set<String> taskTeacherNames = getTaskTeachers(task).stream()
+                .map(User::getRealName)
+                .filter(name -> name != null && !name.isEmpty())
+                .collect(Collectors.toSet());
+        return teacherNames.stream().anyMatch(taskTeacherNames::contains);
+    }
 
 
     /**
@@ -105,88 +220,54 @@ public class TaskService {
      */
     @Transactional
     public void batchCreateTasks(BatchTaskDTO batchTaskDTO) {
-        System.out.println("=== 开始批量创建任务 ===");
-        System.out.println("任务数量: " + batchTaskDTO.getTasks().size());
-
         for (BatchTaskDTO.TaskItem item : batchTaskDTO.getTasks()) {
-            System.out.println("处理任务 - 课程ID: " + item.getCourseId() + ", 教师ID: " + item.getTeacherId());
-
-            // 获取课程信息用于创建通知
             Teacher teacherEntity = teacherMapper.selectById(item.getCourseId());
             if (teacherEntity == null) {
                 throw new RuntimeException("课程信息不存在，ID: " + item.getCourseId());
             }
 
-            // 直接从user表获取教师信息
-            System.out.println("查询user表，teacherId: " + item.getTeacherId());
-            User teacher = userMapper.selectById(item.getTeacherId());
-
-            if (teacher == null) {
-                System.out.println("user表中找不到教师，teacherId: " + item.getTeacherId());
-                LambdaQueryWrapper<User> allUserWrapper = new LambdaQueryWrapper<>();
-                allUserWrapper.eq(User::getRole, "TEACHER");
-                allUserWrapper.last("LIMIT 10");
-                List<User> allUsers = userMapper.selectList(allUserWrapper);
-                System.out.println("user表中的教师记录（前10条）:");
-                allUsers.forEach(u -> System.out.println("  ID: " + u.getId() + ", 姓名: " + u.getRealName()));
-                throw new RuntimeException("教师不存在，ID: " + item.getTeacherId());
+            List<User> taskTeachers = resolveTeacherUsersForTeacherRecord(teacherEntity, item.getTeacherId());
+            if (taskTeachers.isEmpty() && item.getTeacherId() != null) {
+                User teacher = userMapper.selectById(item.getTeacherId());
+                if (teacher != null) {
+                    taskTeachers.add(teacher);
+                }
+            }
+            if (taskTeachers.isEmpty()) {
+                throw new RuntimeException("教师不存在，课程ID: " + item.getCourseId());
             }
 
-            System.out.println("找到教师: " + teacher.getRealName() + ", user.id: " + teacher.getId());
-
-            // 审核员可空，仅当存在时进行校验
             if (item.getAssessorId() != null) {
                 User assessor = userMapper.selectById(item.getAssessorId());
                 if (assessor == null) {
                     throw new RuntimeException("审核员不存在，ID: " + item.getAssessorId());
                 }
-                if (teacher.getId().equals(item.getAssessorId())) {
+                if (taskTeachers.stream().anyMatch(teacher -> teacher.getId().equals(item.getAssessorId()))) {
                     throw new RuntimeException("审核员不能是教师本人");
                 }
             }
 
-            // 检查课程和教师是否已被指派（是否有未完成的任务）
-            LambdaQueryWrapper<Task> taskWrapper = new LambdaQueryWrapper<>();
-            taskWrapper.eq(Task::getCourseId, item.getCourseId());
-            taskWrapper.eq(Task::getTeacherId, teacher.getId());
-            taskWrapper.and(w -> w.eq(Task::getStatus, "PENDING_UPLOAD")
-                    .or().eq(Task::getStatus, "SUBMITTED")
-                    .or().eq(Task::getStatus, "REVIEWING")
-                    .or().eq(Task::getStatus, "NEED_REVISION"));
-            Long existingTaskCount = taskMapper.selectCount(taskWrapper);
-
-            if (existingTaskCount > 0) {
-                // 查询并显示现有的任务详情
-                LambdaQueryWrapper<Task> detailWrapper = new LambdaQueryWrapper<>();
-                detailWrapper.eq(Task::getCourseId, item.getCourseId());
-                detailWrapper.eq(Task::getTeacherId, teacher.getId());
-                detailWrapper.and(w -> w.eq(Task::getStatus, "PENDING_UPLOAD")
-                        .or().eq(Task::getStatus, "SUBMITTED")
-                        .or().eq(Task::getStatus, "REVIEWING")
-                        .or().eq(Task::getStatus, "NEED_REVISION"));
-                List<Task> existingTasks = taskMapper.selectList(detailWrapper);
-                System.out.println("发现已存在的任务:");
-                existingTasks.forEach(t -> {
-                    System.out.println("  任务ID: " + t.getId() +
-                            ", 课程ID: " + t.getCourseId() +
-                            ", 教师ID: " + t.getTeacherId() +
-                            ", 状态: " + t.getStatus());
-                });
-                throw new RuntimeException("该教师已被指派此课程，课程ID: " + item.getCourseId() + "，教师ID: " + teacher.getId());
+            LambdaQueryWrapper<Task> activeTaskWrapper = new LambdaQueryWrapper<>();
+            activeTaskWrapper.eq(Task::getCourseId, item.getCourseId())
+                    .in(Task::getStatus, "PENDING_UPLOAD", "SUBMITTED", "REVIEWING", "NEED_REVISION");
+            List<Task> existingTasks = taskMapper.selectList(activeTaskWrapper);
+            Set<Long> newTeacherIds = taskTeachers.stream().map(User::getId).collect(Collectors.toSet());
+            boolean hasConflict = existingTasks.stream().anyMatch(existingTask ->
+                    TaskTeacherUtils.getTeacherIds(existingTask).stream().anyMatch(newTeacherIds::contains));
+            if (hasConflict) {
+                throw new RuntimeException("该课程已有相同教师的未完成任务，课程ID: " + item.getCourseId());
             }
 
-            // 创建任务
             Task task = new Task();
             task.setCourseId(item.getCourseId());
-            task.setTeacherId(teacher.getId());
-            task.setAssessorId(item.getAssessorId());   // 允许 null
+            TaskTeacherUtils.assignTeacherIds(task, taskTeachers.stream().map(User::getId).collect(Collectors.toList()));
+            task.setAssessorId(item.getAssessorId());
             task.setDeadline(item.getDeadline());
             task.setStatus("PENDING_UPLOAD");
             task.setCreateTime(LocalDateTime.now());
             task.setUpdateTime(LocalDateTime.now());
             taskMapper.insert(task);
 
-            // 为教师创建新任务通知
             String teacherNotificationTitle = "新任务通知";
             String teacherNotificationContent = String.format(
                     "您收到了一个新的备案任务。课程：%s，教学班：%s，截止日期：%s。请及时完成材料上传。",
@@ -194,22 +275,23 @@ public class TaskService {
                     teacherEntity.getTeachingClass(),
                     item.getDeadline().toString()
             );
-            notificationService.createNotification(
-                    teacher.getId(),
-                    task.getId(),
-                    "NEW_TASK",
-                    teacherNotificationTitle,
-                    teacherNotificationContent
-            );
+            for (User teacher : taskTeachers) {
+                notificationService.createNotification(
+                        teacher.getId(),
+                        task.getId(),
+                        "NEW_TASK",
+                        teacherNotificationTitle,
+                        teacherNotificationContent
+                );
+            }
 
-            // 为审核员创建新任务通知（仅当有审核员时）
             if (item.getAssessorId() != null) {
                 String assessorNotificationTitle = "新审核任务通知";
                 String assessorNotificationContent = String.format(
                         "您收到了一个新的审核任务。课程：%s，教学班：%s，教师：%s，截止日期：%s。请及时进行审核。",
                         teacherEntity.getCourseName(),
                         teacherEntity.getTeachingClass(),
-                        teacher.getRealName(),
+                        joinTeacherNames(task),
                         item.getDeadline().toString()
                 );
                 notificationService.createNotification(
@@ -245,11 +327,8 @@ public class TaskService {
         Teacher teacherEntity = null;
         if (task.getTeacherId() != null) {
             teacherEntity = teacherMapper.selectById(task.getCourseId());
-            if (teacherEntity != null) {
-                User taskTeacher = userMapper.selectById(task.getTeacherId());
-                if (taskTeacher != null && !teacherEntity.getTeacherName().equals(taskTeacher.getRealName())) {
-                    teacherEntity = null;
-                }
+            if (teacherEntity != null && !matchesTeacherRecord(task, teacherEntity)) {
+                teacherEntity = null;
             }
         }
 
@@ -280,12 +359,9 @@ public class TaskService {
             }
         }
 
-        if (task.getTeacherId() != null) {
-            User teacher = userMapper.selectById(task.getTeacherId());
-            if (teacher != null) {
-                vo.setTeacherWorkId(teacher.getWorkId());
-                vo.setTeacherName(teacher.getRealName());
-            }
+        if (!getTaskTeachers(task).isEmpty()) {
+            vo.setTeacherWorkId(joinTeacherWorkIds(task));
+            vo.setTeacherName(joinTeacherNames(task));
         } else {
             vo.setTeacherName("未分配教师");
         }
@@ -306,7 +382,7 @@ public class TaskService {
      */
     public List<TeacherTaskVO> getTeacherTasks(Long teacherId, String status, String sortBy, String order) {
         LambdaQueryWrapper<Task> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Task::getTeacherId, teacherId);
+        applyTeacherTaskFilter(wrapper, teacherId);
 
         if (status != null && !status.trim().isEmpty()) {
             wrapper.eq(Task::getStatus, status);
@@ -333,7 +409,7 @@ public class TaskService {
         if (task == null) {
             throw new RuntimeException("任务不存在");
         }
-        if (!task.getTeacherId().equals(teacherId)) {
+        if (!TaskTeacherUtils.containsTeacher(task, teacherId)) {
             throw new RuntimeException("无权查看该任务");
         }
         return convertToTeacherTaskVO(task);
@@ -348,7 +424,7 @@ public class TaskService {
         if (task == null) {
             throw new RuntimeException("任务不存在");
         }
-        if (!task.getTeacherId().equals(teacherId)) {
+        if (!TaskTeacherUtils.containsTeacher(task, teacherId)) {
             throw new RuntimeException("无权提交该任务");
         }
         // 检查截止日期
@@ -405,21 +481,21 @@ public class TaskService {
         // ========== 给审核员发送通知 ==========
         List<Long> assessorIds = reviewWorkflowService.getActiveAssessorIds(taskId);
         if (!assessorIds.isEmpty()) {
-            User teacher = userMapper.selectById(teacherId);
+            String teacherNames = joinTeacherNames(task);
             Teacher teacherEntity = teacherMapper.selectById(task.getCourseId());
             String courseName = teacherEntity != null ? teacherEntity.getCourseName() : "未知课程";
             String teachingClass = teacherEntity != null ? teacherEntity.getTeachingClass() : "";
 
             for (Long assessorId : assessorIds) {
                 User assessor = userMapper.selectById(assessorId);
-                if (teacher != null && assessor != null) {
+                if (assessor != null) {
                     List<ReviewProjectVO> activeProjects = reviewWorkflowService.getAssessorActiveProjects(taskId, assessorId);
                     String projectText = activeProjects.isEmpty()
                             ? "备案材料"
                             : activeProjects.stream().map(ReviewProjectVO::getName).collect(Collectors.joining("、"));
                     String title = isResubmission ? "任务重新提交待审核通知" : "任务待审核通知";
                     String content = String.format("教师 %s 已%s课程 %s（教学班 %s）的备案材料。待审核项目：%s，请及时审核。",
-                            teacher.getRealName(),
+                            teacherNames,
                             isResubmission ? "重新提交" : "提交",
                             courseName,
                             teachingClass,
@@ -427,7 +503,7 @@ public class TaskService {
                     notificationService.createNotification(assessorId, taskId, "TASK_SUBMITTED", title, content);
                 }
 
-                if (assessor != null && assessor.getEmail() != null && !assessor.getEmail().isEmpty() && teacher != null) {
+                if (assessor != null && assessor.getEmail() != null && !assessor.getEmail().isEmpty()) {
                     List<ReviewProjectVO> activeProjects = reviewWorkflowService.getAssessorActiveProjects(taskId, assessorId);
                     String projectText = activeProjects.isEmpty()
                             ? "备案材料"
@@ -435,7 +511,7 @@ public class TaskService {
                     String subject = isResubmission
                             ? "【专业认证备案】任务重新提交待审核 - " + courseName
                             : "【专业认证备案】任务待审核 - " + courseName;
-                    String content = buildTaskSubmittedEmailContent(courseName, teachingClass, teacher.getRealName(), projectText, isResubmission);
+                    String content = buildTaskSubmittedEmailContent(courseName, teachingClass, teacherNames, projectText, isResubmission);
                     emailService.sendHtmlMail(assessor.getEmail(), subject, content);
                 }
             }
@@ -460,16 +536,14 @@ public class TaskService {
         Teacher teacherEntity = null;
         if (task.getTeacherId() != null) {
             teacherEntity = teacherMapper.selectById(task.getCourseId());
-            if (teacherEntity != null) {
-                User taskTeacher = userMapper.selectById(task.getTeacherId());
-                if (taskTeacher != null && !teacherEntity.getTeacherName().equals(taskTeacher.getRealName())) {
-                    teacherEntity = null;
-                }
+            if (teacherEntity != null && !matchesTeacherRecord(task, teacherEntity)) {
+                teacherEntity = null;
             }
         }
 
         if (teacherEntity != null) {
             vo.setCourseName(teacherEntity.getCourseName());
+            vo.setCourseCode(teacherEntity.getCourseCode());
             vo.setTeachingClass(teacherEntity.getTeachingClass());
             if (teacherEntity.getPreferred() != null) {
                 java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\d{4}");
@@ -483,11 +557,13 @@ public class TaskService {
             Course course = courseMapper.selectById(task.getCourseId());
             if (course != null) {
                 vo.setCourseName(course.getCourseName());
+                vo.setCourseCode("");
                 vo.setTeachingClass("未开课");
                 vo.setGrade(course.getGrade());
                 vo.setSemester(course.getSemester());
             } else {
                 vo.setCourseName("未知课程");
+                vo.setCourseCode("");
                 vo.setTeachingClass("");
             }
         }
@@ -525,7 +601,7 @@ public class TaskService {
             wrapper.eq(Task::getStatus, status);
         }
         if (teacherId != null) {
-            wrapper.eq(Task::getTeacherId, teacherId);
+            applyTeacherTaskFilter(wrapper, teacherId);
         }
         wrapper.orderByDesc(Task::getCreateTime);
 
@@ -603,11 +679,8 @@ public class TaskService {
         Teacher teacherEntity = null;
         if (task.getTeacherId() != null) {
             teacherEntity = teacherMapper.selectById(task.getCourseId());
-            if (teacherEntity != null) {
-                User taskTeacher = userMapper.selectById(task.getTeacherId());
-                if (taskTeacher != null && !teacherEntity.getTeacherName().equals(taskTeacher.getRealName())) {
-                    teacherEntity = null;
-                }
+            if (teacherEntity != null && !matchesTeacherRecord(task, teacherEntity)) {
+                teacherEntity = null;
             }
         }
 
@@ -635,13 +708,10 @@ public class TaskService {
             }
         }
 
-        if (task.getTeacherId() != null) {
-            User teacher = userMapper.selectById(task.getTeacherId());
-            if (teacher != null) {
-                vo.setTeacherId(teacher.getId());
-                vo.setTeacherWorkId(teacher.getWorkId());
-                vo.setTeacherName(teacher.getRealName());
-            }
+        if (!getTaskTeachers(task).isEmpty()) {
+            vo.setTeacherId(task.getTeacherId());
+            vo.setTeacherWorkId(joinTeacherWorkIds(task));
+            vo.setTeacherName(joinTeacherNames(task));
         } else {
             vo.setTeacherName("未分配教师");
         }
@@ -703,22 +773,30 @@ public class TaskService {
         TeacherTaskStatisticsVO statistics = new TeacherTaskStatisticsVO();
 
         LambdaQueryWrapper<Task> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Task::getTeacherId, teacherId);
+        applyTeacherTaskFilter(wrapper, teacherId);
 
         Long total = taskMapper.selectCount(wrapper);
         statistics.setTotalTasks(total);
 
-        statistics.setPendingUploadTasks(taskMapper.selectCount(
-                new LambdaQueryWrapper<Task>().eq(Task::getTeacherId, teacherId).eq(Task::getStatus, "PENDING_UPLOAD")));
-        statistics.setSubmittedTasks(taskMapper.selectCount(
-                new LambdaQueryWrapper<Task>().eq(Task::getTeacherId, teacherId).eq(Task::getStatus, "SUBMITTED")));
+        LambdaQueryWrapper<Task> pendingWrapper = new LambdaQueryWrapper<>();
+        applyTeacherTaskFilter(pendingWrapper, teacherId);
+        pendingWrapper.eq(Task::getStatus, "PENDING_UPLOAD");
+        statistics.setPendingUploadTasks(taskMapper.selectCount(pendingWrapper));
+
+        LambdaQueryWrapper<Task> submittedWrapper = new LambdaQueryWrapper<>();
+        applyTeacherTaskFilter(submittedWrapper, teacherId);
+        submittedWrapper.eq(Task::getStatus, "SUBMITTED");
+        statistics.setSubmittedTasks(taskMapper.selectCount(submittedWrapper));
+
         Long reviewingCount = taskMapper.selectCount(
-                new LambdaQueryWrapper<Task>()
-                        .eq(Task::getTeacherId, teacherId)
+                applyTeacherTaskFilter(new LambdaQueryWrapper<>(), teacherId)
                         .in(Task::getStatus, "SUBMITTED", "REVIEWING"));
         statistics.setReviewingTasks(reviewingCount);
-        statistics.setApprovedTasks(taskMapper.selectCount(
-                new LambdaQueryWrapper<Task>().eq(Task::getTeacherId, teacherId).eq(Task::getStatus, "APPROVED")));
+
+        LambdaQueryWrapper<Task> approvedWrapper = new LambdaQueryWrapper<>();
+        applyTeacherTaskFilter(approvedWrapper, teacherId);
+        approvedWrapper.eq(Task::getStatus, "APPROVED");
+        statistics.setApprovedTasks(taskMapper.selectCount(approvedWrapper));
         statistics.setNeedRevisionTasks(0L);
 
         if (total > 0) {

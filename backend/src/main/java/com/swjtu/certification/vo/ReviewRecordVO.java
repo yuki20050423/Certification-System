@@ -26,6 +26,11 @@ public class ReviewRecordVO {
     private String courseName;
 
     /**
+     * 课程代码
+     */
+    private String courseCode;
+
+    /**
      * 教学班
      */
     private String teachingClass;
