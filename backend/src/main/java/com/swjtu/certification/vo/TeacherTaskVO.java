@@ -3,6 +3,7 @@ package com.swjtu.certification.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 教师任务视图对象
@@ -78,5 +79,20 @@ public class TeacherTaskVO {
      * 是否已过期
      */
     private Boolean isExpired;
+
+    /**
+     * 是否存在被退回、允许教师继续修改的项目
+     */
+    private Boolean canUpload;
+
+    /**
+     * 已被退回的项目
+     */
+    private List<ReviewProjectVO> rejectedReviewProjects;
+
+    /**
+     * 当前任务的全部备案项目审核状态
+     */
+    private List<ReviewProjectVO> reviewProjects;
 }
 

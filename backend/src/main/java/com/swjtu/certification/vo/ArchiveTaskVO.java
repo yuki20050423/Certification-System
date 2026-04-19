@@ -25,6 +25,11 @@ public class ArchiveTaskVO {
     private String courseName;
 
     /**
+     * 课程代码
+     */
+    private String courseCode;
+
+    /**
      * 教学班号
      */
     private String teachingClass;
@@ -108,6 +113,11 @@ public class ArchiveTaskVO {
      * 材料要求说明
      */
     private String materialRequirements;
+
+    /**
+     * 审核项目说明
+     */
+    private String reviewProjectsDescription;
 
     /**
      * 创建时间

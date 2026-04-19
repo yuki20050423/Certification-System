@@ -9,10 +9,13 @@ import com.swjtu.certification.entity.User;
 import com.swjtu.certification.entity.File;
 import com.swjtu.certification.entity.Course;
 import com.swjtu.certification.mapper.CourseMapper;
+import com.swjtu.certification.mapper.ReviewRecordMapper;
 import com.swjtu.certification.mapper.TaskMapper;
 import com.swjtu.certification.mapper.TeacherMapper;
 import com.swjtu.certification.mapper.UserMapper;
 import com.swjtu.certification.mapper.FileMapper;
+import com.swjtu.certification.util.TaskItemUtils;
+import com.swjtu.certification.vo.ReviewProjectVO;
 import com.swjtu.certification.vo.TeacherTaskStatisticsVO;
 import com.swjtu.certification.vo.AssessorTaskVO;
 import com.swjtu.certification.vo.ReviewStatisticsVO;
@@ -24,9 +27,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.Random;
 
 /**
  * 任务服务类
@@ -39,8 +45,11 @@ public class TaskService {
     private final UserMapper userMapper;
     private final TeacherMapper teacherMapper;
     private final FileMapper fileMapper;
+    private final ReviewRecordMapper reviewRecordMapper;
     private final NotificationService notificationService;
+    private final ReviewWorkflowService reviewWorkflowService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    private final EmailService emailService;
 
 
     /**
@@ -230,15 +239,8 @@ public class TaskService {
         vo.setDescription(task.getDescription());
         vo.setMaterialRequirements(task.getMaterialRequirements());
 
-        switch (task.getStatus()) {
-            case "PENDING_UPLOAD": vo.setStatusDesc("待上传"); break;
-            case "SUBMITTED": vo.setStatusDesc("已提交"); break;
-            case "PENDING_REVIEW": vo.setStatusDesc("审核中"); break;
-            case "REVIEWING": vo.setStatusDesc("审核中"); break;
-            case "APPROVED": vo.setStatusDesc("审核通过"); break;
-            case "NEED_REVISION": vo.setStatusDesc("需修改"); break;
-            default: vo.setStatusDesc("未知");
-        }
+        vo.setStatusDesc(getTaskStatusDesc(task.getStatus()));
+        vo.setAvailableReviewProjects(reviewWorkflowService.getAvailableReviewProjects(task));
 
         Teacher teacherEntity = null;
         if (task.getTeacherId() != null) {
@@ -253,6 +255,7 @@ public class TaskService {
 
         if (teacherEntity != null) {
             vo.setCourseName(teacherEntity.getCourseName());
+            vo.setCourseCode(teacherEntity.getCourseCode());
             vo.setTeachingClass(teacherEntity.getTeachingClass());
             if (teacherEntity.getPreferred() != null) {
                 java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\d{4}");
@@ -266,11 +269,13 @@ public class TaskService {
             Course course = courseMapper.selectById(task.getCourseId());
             if (course != null) {
                 vo.setCourseName(course.getCourseName());
+                vo.setCourseCode("");
                 vo.setTeachingClass("未开课");
                 vo.setGrade(course.getGrade());
                 vo.setSemester(course.getSemester());
             } else {
                 vo.setCourseName("未知课程");
+                vo.setCourseCode("");
                 vo.setTeachingClass("");
             }
         }
@@ -357,32 +362,82 @@ public class TaskService {
         if (fileCount == 0) {
             throw new RuntimeException("请先上传文件");
         }
+
+        List<File> uploadedFiles = fileMapper.selectList(fileWrapper);
+
+        List<TaskItemUtils.ItemConfig> requiredItems = TaskItemUtils.parseRequiredItems(task.getMaterialRequirements());
+        if (!requiredItems.isEmpty()) {
+            Set<String> uploadedItemCodes = uploadedFiles.stream()
+                    .map(file -> TaskItemUtils.resolveItemCodeFromPath(file.getFilePath()))
+                    .filter(code -> code != null && !code.trim().isEmpty())
+                    .collect(Collectors.toSet());
+
+            List<String> missingItemNames = new ArrayList<>();
+            for (TaskItemUtils.ItemConfig item : requiredItems) {
+                if (!uploadedItemCodes.contains(item.getCode())) {
+                    missingItemNames.add(item.getName());
+                }
+            }
+
+            if (!missingItemNames.isEmpty()) {
+                throw new RuntimeException("以下备案项目尚未上传文件：" + String.join("、", missingItemNames));
+            }
+        }
+
         // 检查状态
-        if (!"PENDING_UPLOAD".equals(task.getStatus()) && !"NEED_REVISION".equals(task.getStatus())) {
+        boolean canResubmit = "PENDING_UPLOAD".equals(task.getStatus()) || reviewWorkflowService.hasRejectedProjects(taskId);
+        if (!canResubmit) {
             throw new RuntimeException("当前任务状态不允许提交");
         }
 
-        task.setStatus("SUBMITTED");
+        boolean isResubmission = !"PENDING_UPLOAD".equals(task.getStatus());
+
+        if ("PENDING_UPLOAD".equals(task.getStatus())) {
+            task.setStatus("SUBMITTED");
+        } else {
+            validateRejectedItemsResubmission(task, uploadedFiles);
+            reviewWorkflowService.reopenRejectedProjects(taskId);
+        }
         task.setUpdateTime(LocalDateTime.now());
         taskMapper.updateById(task);
+        reviewWorkflowService.refreshTaskStatus(taskId);
 
         // ========== 给审核员发送通知 ==========
-        Long assessorId = task.getAssessorId();
-        if (assessorId != null) {
-            // 获取教师姓名
+        List<Long> assessorIds = reviewWorkflowService.getActiveAssessorIds(taskId);
+        if (!assessorIds.isEmpty()) {
             User teacher = userMapper.selectById(teacherId);
-            // 获取课程信息
             Teacher teacherEntity = teacherMapper.selectById(task.getCourseId());
-            if (teacher != null && teacherEntity != null) {
-                String teacherName = teacher.getRealName();
-                String courseName = teacherEntity.getCourseName();
-                String teachingClass = teacherEntity.getTeachingClass();
+            String courseName = teacherEntity != null ? teacherEntity.getCourseName() : "未知课程";
+            String teachingClass = teacherEntity != null ? teacherEntity.getTeachingClass() : "";
 
-                String title = "任务待审核通知";
-                String content = String.format("教师 %s 已提交课程 %s（教学班 %s）的备案材料，请及时审核。",
-                        teacherName, courseName, teachingClass);
+            for (Long assessorId : assessorIds) {
+                User assessor = userMapper.selectById(assessorId);
+                if (teacher != null && assessor != null) {
+                    List<ReviewProjectVO> activeProjects = reviewWorkflowService.getAssessorActiveProjects(taskId, assessorId);
+                    String projectText = activeProjects.isEmpty()
+                            ? "备案材料"
+                            : activeProjects.stream().map(ReviewProjectVO::getName).collect(Collectors.joining("、"));
+                    String title = isResubmission ? "任务重新提交待审核通知" : "任务待审核通知";
+                    String content = String.format("教师 %s 已%s课程 %s（教学班 %s）的备案材料。待审核项目：%s，请及时审核。",
+                            teacher.getRealName(),
+                            isResubmission ? "重新提交" : "提交",
+                            courseName,
+                            teachingClass,
+                            projectText);
+                    notificationService.createNotification(assessorId, taskId, "TASK_SUBMITTED", title, content);
+                }
 
-                notificationService.createNotification(assessorId, taskId, "TASK_SUBMITTED", title, content);
+                if (assessor != null && assessor.getEmail() != null && !assessor.getEmail().isEmpty() && teacher != null) {
+                    List<ReviewProjectVO> activeProjects = reviewWorkflowService.getAssessorActiveProjects(taskId, assessorId);
+                    String projectText = activeProjects.isEmpty()
+                            ? "备案材料"
+                            : activeProjects.stream().map(ReviewProjectVO::getName).collect(Collectors.joining("、"));
+                    String subject = isResubmission
+                            ? "【专业认证备案】任务重新提交待审核 - " + courseName
+                            : "【专业认证备案】任务待审核 - " + courseName;
+                    String content = buildTaskSubmittedEmailContent(courseName, teachingClass, teacher.getRealName(), projectText, isResubmission);
+                    emailService.sendHtmlMail(assessor.getEmail(), subject, content);
+                }
             }
         }
     }
@@ -400,15 +455,7 @@ public class TaskService {
         vo.setMaterialRequirements(task.getMaterialRequirements());
         vo.setCreateTime(task.getCreateTime());
 
-        switch (task.getStatus()) {
-            case "PENDING_UPLOAD": vo.setStatusDesc("待上传"); break;
-            case "SUBMITTED": vo.setStatusDesc("已提交"); break;
-            case "PENDING_REVIEW": vo.setStatusDesc("审核中"); break;
-            case "REVIEWING": vo.setStatusDesc("审核中"); break;
-            case "APPROVED": vo.setStatusDesc("审核通过"); break;
-            case "NEED_REVISION": vo.setStatusDesc("需修改"); break;
-            default: vo.setStatusDesc("未知");
-        }
+        vo.setStatusDesc(getTaskStatusDesc(task.getStatus()));
 
         Teacher teacherEntity = null;
         if (task.getTeacherId() != null) {
@@ -451,7 +498,14 @@ public class TaskService {
         Long fileCount = fileMapper.selectCount(fileWrapper);
         vo.setFileCount(fileCount.intValue());
 
+        List<ReviewProjectVO> reviewProjects = reviewWorkflowService.getTeacherProjects(task);
         vo.setIsExpired(LocalDateTime.now().isAfter(task.getDeadline()));
+        vo.setReviewProjects(reviewProjects);
+        vo.setRejectedReviewProjects(reviewProjects.stream()
+                .filter(project -> "REJECTED".equals(project.getStatus()))
+                .collect(Collectors.toList()));
+        vo.setCanUpload(reviewProjects.stream().anyMatch(project -> Boolean.TRUE.equals(project.getEditable()))
+                || (reviewProjects.isEmpty() && "PENDING_UPLOAD".equals(task.getStatus())));
 
         return vo;
     }
@@ -460,23 +514,23 @@ public class TaskService {
      * 获取审核员的任务列表
      */
     public List<AssessorTaskVO> getAssessorTasks(Long assessorId, String status, Long teacherId) {
-        LambdaQueryWrapper<Task> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Task::getAssessorId, assessorId);
+        List<Long> taskIds = reviewWorkflowService.getAssessorActiveTaskIds(assessorId);
+        if (taskIds.isEmpty()) {
+            return new ArrayList<>();
+        }
 
-        // 按状态筛选
+        LambdaQueryWrapper<Task> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(Task::getId, taskIds);
         if (status != null && !status.trim().isEmpty()) {
             wrapper.eq(Task::getStatus, status);
         }
-
-        // 按教师筛选
         if (teacherId != null) {
             wrapper.eq(Task::getTeacherId, teacherId);
         }
-
         wrapper.orderByDesc(Task::getCreateTime);
 
         List<Task> tasks = taskMapper.selectList(wrapper);
-        return tasks.stream().map(task -> convertToAssessorTaskVO(task)).collect(Collectors.toList());
+        return tasks.stream().map(task -> convertToAssessorTaskVO(task, assessorId)).collect(Collectors.toList());
     }
 
     /**
@@ -487,10 +541,10 @@ public class TaskService {
         if (task == null) {
             throw new RuntimeException("任务不存在");
         }
-        if (!task.getAssessorId().equals(assessorId)) {
+        if (!reviewWorkflowService.canAssessorReviewTask(taskId, assessorId)) {
             throw new RuntimeException("无权查看该任务");
         }
-        return convertToAssessorTaskVO(task);
+        return convertToAssessorTaskVO(task, assessorId);
     }
 
     /**
@@ -499,38 +553,25 @@ public class TaskService {
     public ReviewStatisticsVO getReviewStatistics(Long assessorId) {
         ReviewStatisticsVO statistics = new ReviewStatisticsVO();
 
-        LambdaQueryWrapper<Task> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Task::getAssessorId, assessorId);
+        List<Long> taskIds = reviewWorkflowService.getAssessorTaskIds(assessorId);
+        statistics.setTotalTasks((long) taskIds.size());
+        if (taskIds.isEmpty()) {
+            statistics.setPendingTasks(0L);
+            statistics.setReviewingTasks(0L);
+            statistics.setApprovedTasks(0L);
+            statistics.setNeedRevisionTasks(0L);
+            statistics.setProcessedTasks(0L);
+            statistics.setApprovalRate(0.0);
+            return statistics;
+        }
 
-        // 总任务数
-        statistics.setTotalTasks(taskMapper.selectCount(wrapper));
+        List<Task> tasks = taskMapper.selectBatchIds(taskIds);
+        statistics.setPendingTasks(tasks.stream().filter(task -> "SUBMITTED".equals(task.getStatus())).count());
+        statistics.setReviewingTasks(tasks.stream().filter(task -> "REVIEWING".equals(task.getStatus())).count());
+        statistics.setApprovedTasks(tasks.stream().filter(task -> "APPROVED".equals(task.getStatus())).count());
+        statistics.setNeedRevisionTasks(0L);
 
-        // 待审核任务数（已提交）
-        LambdaQueryWrapper<Task> submittedWrapper = new LambdaQueryWrapper<>();
-        submittedWrapper.eq(Task::getAssessorId, assessorId);
-        submittedWrapper.eq(Task::getStatus, "SUBMITTED");
-        statistics.setPendingTasks(taskMapper.selectCount(submittedWrapper));
-
-        // 审核中任务数
-        LambdaQueryWrapper<Task> reviewingWrapper = new LambdaQueryWrapper<>();
-        reviewingWrapper.eq(Task::getAssessorId, assessorId);
-        reviewingWrapper.eq(Task::getStatus, "REVIEWING");
-        statistics.setReviewingTasks(taskMapper.selectCount(reviewingWrapper));
-
-        // 审核通过任务数
-        LambdaQueryWrapper<Task> approvedWrapper = new LambdaQueryWrapper<>();
-        approvedWrapper.eq(Task::getAssessorId, assessorId);
-        approvedWrapper.eq(Task::getStatus, "APPROVED");
-        statistics.setApprovedTasks(taskMapper.selectCount(approvedWrapper));
-
-        // 需修改任务数
-        LambdaQueryWrapper<Task> needRevisionWrapper = new LambdaQueryWrapper<>();
-        needRevisionWrapper.eq(Task::getAssessorId, assessorId);
-        needRevisionWrapper.eq(Task::getStatus, "NEED_REVISION");
-        statistics.setNeedRevisionTasks(taskMapper.selectCount(needRevisionWrapper));
-
-        // 已处理任务数（审核通过 + 需修改）
-        Long processedTasks = statistics.getApprovedTasks() + statistics.getNeedRevisionTasks();
+        Long processedTasks = statistics.getApprovedTasks() + statistics.getReviewingTasks();
         statistics.setProcessedTasks(processedTasks);
 
         // 计算通过率
@@ -547,7 +588,7 @@ public class TaskService {
     /**
      * 转换为审核员任务VO
      */
-    private AssessorTaskVO convertToAssessorTaskVO(Task task) {
+    private AssessorTaskVO convertToAssessorTaskVO(Task task, Long assessorId) {
         AssessorTaskVO vo = new AssessorTaskVO();
         vo.setId(task.getId());
         vo.setCourseId(task.getCourseId());
@@ -557,14 +598,7 @@ public class TaskService {
         vo.setMaterialRequirements(task.getMaterialRequirements());
         vo.setCreateTime(task.getCreateTime());
 
-        switch (task.getStatus()) {
-            case "PENDING_UPLOAD": vo.setStatusDesc("待上传"); break;
-            case "SUBMITTED": vo.setStatusDesc("待审核"); break;
-            case "REVIEWING": vo.setStatusDesc("审核中"); break;
-            case "APPROVED": vo.setStatusDesc("审核通过"); break;
-            case "NEED_REVISION": vo.setStatusDesc("需修改"); break;
-            default: vo.setStatusDesc("未知");
-        }
+        vo.setStatusDesc(getTaskStatusDesc(task.getStatus()));
 
         Teacher teacherEntity = null;
         if (task.getTeacherId() != null) {
@@ -617,9 +651,10 @@ public class TaskService {
         fileWrapper.eq(File::getStatus, "UPLOADED");
         Long fileCount = fileMapper.selectCount(fileWrapper);
         vo.setFileCount(fileCount.intValue());
+        vo.setAssignedReviewProjects(reviewWorkflowService.getAssessorProjects(task.getId(), assessorId));
 
         if ("SUBMITTED".equals(task.getStatus()) || "REVIEWING".equals(task.getStatus()) ||
-                "APPROVED".equals(task.getStatus()) || "NEED_REVISION".equals(task.getStatus())) {
+                "APPROVED".equals(task.getStatus())) {
             vo.setSubmitTime(task.getUpdateTime());
         }
 
@@ -684,8 +719,7 @@ public class TaskService {
         statistics.setReviewingTasks(reviewingCount);
         statistics.setApprovedTasks(taskMapper.selectCount(
                 new LambdaQueryWrapper<Task>().eq(Task::getTeacherId, teacherId).eq(Task::getStatus, "APPROVED")));
-        statistics.setNeedRevisionTasks(taskMapper.selectCount(
-                new LambdaQueryWrapper<Task>().eq(Task::getTeacherId, teacherId).eq(Task::getStatus, "NEED_REVISION")));
+        statistics.setNeedRevisionTasks(0L);
 
         if (total > 0) {
             double rate = (statistics.getApprovedTasks().doubleValue() / total) * 100;
@@ -694,6 +728,74 @@ public class TaskService {
             statistics.setCompletionRate(0.0);
         }
         return statistics;
+    }
+
+    private String buildTaskSubmittedEmailContent(String courseName, String teachingClass, String teacherName, String projectText, boolean isResubmission) {
+        return String.format(
+                "<h3>📬 专业认证年度备案 - 任务待审核</h3>" +
+                        "<p>教师 <strong>%s</strong> 已%s备案材料，请及时审核。</p>" +
+                        "<table border='0' cellpadding='8' style='border-collapse: collapse;'>" +
+                        "<tr><td><strong>课程名称：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>教学班：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>待审核项目：</strong></td><td>%s</td></tr>" +
+                        "</table>" +
+                        "<p><a href='http://localhost:8080/assessor/tasks' style='display: inline-block; padding: 10px 20px; background-color: #165DFF; color: #fff; text-decoration: none; border-radius: 5px;'>进入系统审核</a></p>" +
+                        "<p style='color: #999; font-size: 12px;'>本邮件由系统自动发送，请勿回复。</p>",
+                teacherName, isResubmission ? "重新提交了" : "提交了", courseName, teachingClass, projectText
+        );
+    }
+
+    private String getTaskStatusDesc(String status) {
+        switch (status) {
+            case "PENDING_UPLOAD":
+                return "待上传";
+            case "SUBMITTED":
+                return "待审核";
+            case "PENDING_REVIEW":
+            case "REVIEWING":
+                return "审核中";
+            case "APPROVED":
+                return "审核通过";
+            case "NEED_REVISION":
+                return "需修改";
+            default:
+                return "未知";
+        }
+    }
+
+    private void validateRejectedItemsResubmission(Task task, List<File> uploadedFiles) {
+        List<ReviewProjectVO> rejectedProjects = reviewWorkflowService.getRejectedProjects(task);
+        if (rejectedProjects.isEmpty()) {
+            throw new RuntimeException("当前没有需要重新提交的备案目录");
+        }
+
+        Map<String, LocalDateTime> latestRejectedTimeByItem = reviewRecordMapper.selectList(
+                new LambdaQueryWrapper<com.swjtu.certification.entity.ReviewRecord>()
+                        .eq(com.swjtu.certification.entity.ReviewRecord::getTaskId, task.getId())
+                        .eq(com.swjtu.certification.entity.ReviewRecord::getReviewStatus, "REJECTED")
+                        .orderByDesc(com.swjtu.certification.entity.ReviewRecord::getReviewTime)
+        ).stream().collect(Collectors.toMap(
+                com.swjtu.certification.entity.ReviewRecord::getItemCode,
+                com.swjtu.certification.entity.ReviewRecord::getReviewTime,
+                (first, second) -> first
+        ));
+
+        List<String> notUpdatedProjects = new ArrayList<>();
+        for (ReviewProjectVO project : rejectedProjects) {
+            LocalDateTime latestRejectedTime = latestRejectedTimeByItem.get(project.getCode());
+            boolean hasNewUpload = uploadedFiles.stream().anyMatch(file -> {
+                String fileItemCode = TaskItemUtils.resolveItemCodeFromPath(file.getFilePath());
+                return project.getCode().equals(fileItemCode)
+                        && (latestRejectedTime == null || file.getUploadTime().isAfter(latestRejectedTime));
+            });
+            if (!hasNewUpload) {
+                notUpdatedProjects.add(project.getName());
+            }
+        }
+
+        if (!notUpdatedProjects.isEmpty()) {
+            throw new RuntimeException("以下未通过的备案目录需重新上传文件后才能再次提交：" + String.join("、", notUpdatedProjects));
+        }
     }
 }
 

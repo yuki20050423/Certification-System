@@ -370,6 +370,52 @@
     font-weight: 600;
 }
 
+.directory-list {
+    display: grid;
+    gap: 16px;
+}
+
+.directory-card {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 18px;
+    background: #fbfcff;
+}
+
+.directory-card.has-files {
+    border-color: rgba(22, 93, 255, 0.26);
+    background: rgba(22, 93, 255, 0.03);
+}
+
+.directory-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.directory-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2C3E50;
+}
+
+.directory-meta {
+    font-size: 13px;
+    color: #6b7280;
+    margin-top: 4px;
+}
+
+.directory-empty {
+    padding: 18px 12px;
+    background: #fff;
+    border-radius: 10px;
+    text-align: center;
+    color: #6b7280;
+}
+
 /* 审核表单 */
 .review-section {
     background: #fff;
@@ -437,6 +483,73 @@
     border-color: #165DFF;
     box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.1);
     outline: none;
+}
+
+.review-items-list {
+    display: grid;
+    gap: 10px;
+}
+
+.review-item-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.review-item-option.is-disabled {
+    opacity: 0.75;
+    background: #f3f4f6;
+}
+
+.review-item-option label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    cursor: pointer;
+    flex: 1;
+}
+
+.review-item-option input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+}
+
+.review-item-name {
+    font-weight: 500;
+    color: #1f2937;
+}
+
+.review-item-status {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.review-item-status.pending {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.review-item-status.reviewing {
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.review-item-status.approved {
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.review-item-status.rejected {
+    background: #fef2f2;
+    color: #b91c1c;
 }
 
 .review-form .form-actions {

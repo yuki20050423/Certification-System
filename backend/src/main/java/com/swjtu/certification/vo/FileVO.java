@@ -83,4 +83,19 @@ public class FileVO {
      * 格式化后的文件大小
      */
     private String fileSizeFormatted;
+
+    /**
+     * 所属备案项目编码
+     */
+    private String itemCode;
+
+    /**
+     * 所属备案项目名称
+     */
+    private String itemName;
+
+    /**
+     * 当前教师是否仍可编辑该文件
+     */
+    private Boolean canEdit;
 }

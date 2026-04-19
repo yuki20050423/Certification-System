@@ -62,7 +62,9 @@ INSERT INTO `user` (`username`, `work_id`, `real_name`, `email`, `phone`, `passw
 ('admin', 'SWJTU001', '管理员', 'admin@swjtu.edu.cn', '13800138000', '$2a$10$Lb55CXRs/D5DlvousCxB2.EY8fS9mR14DcxrueQ8cCDlkJRQ3Ie8.', 'ADMIN'),
 ('teacher01', 'SWJTU002', '张老师', 'teacher01@swjtu.edu.cn', '13800138001', '$2a$10$Lb55CXRs/D5DlvousCxB2.EY8fS9mR14DcxrueQ8cCDlkJRQ3Ie8.', 'TEACHER'),
 ('teacher02', 'SWJTU003', '李老师', 'teacher02@swjtu.edu.cn', '13800138002', '$2a$10$Lb55CXRs/D5DlvousCxB2.EY8fS9mR14DcxrueQ8cCDlkJRQ3Ie8.', 'TEACHER'),
-('assessor01', 'SWJTU004', '王评审员', 'assessor01@swjtu.edu.cn', '13800138003', '$2a$10$Lb55CXRs/D5DlvousCxB2.EY8fS9mR14DcxrueQ8cCDlkJRQ3Ie8.', 'ASSESSOR');
+('teacher03', 'SWJTU006', '赵宏宇', '1690605744@qq.com', '13800138005', '$2a$10$Lb55CXRs/D5DlvousCxB2.EY8fS9mR14DcxrueQ8cCDlkJRQ3Ie8.', 'TEACHER'),
+('assessor01', 'SWJTU004', '王评审员', '1902134507@qq.com', '13800138003', '$2a$10$Lb55CXRs/D5DlvousCxB2.EY8fS9mR14DcxrueQ8cCDlkJRQ3Ie8.', 'ASSESSOR'),
+('assessor02', 'SWJTU005', '李评审员', 'assessor02@swjtu.edu.cn', '13800138004', '$2a$10$Lb55CXRs/D5DlvousCxB2.EY8fS9mR14DcxrueQ8cCDlkJRQ3Ie8.', 'ASSESSOR');
 
 -- 课程表
 CREATE TABLE IF NOT EXISTS `course` (
@@ -129,6 +131,8 @@ CREATE TABLE IF NOT EXISTS `review_record` (
     `id` BIGINT(20) NOT NULL AUTO_INCREMENT COMMENT '审核记录ID',
     `task_id` BIGINT(20) NOT NULL COMMENT '任务ID',
     `assessor_id` BIGINT(20) NOT NULL COMMENT '审核员ID',
+    `item_code` VARCHAR(20) DEFAULT NULL COMMENT '备案项目编码',
+    `item_name` VARCHAR(255) DEFAULT NULL COMMENT '备案项目名称',
     `review_status` VARCHAR(20) NOT NULL COMMENT '审核状态：APPROVED-审核通过，REJECTED-需修改',
     `score` DECIMAL(5,2) DEFAULT NULL COMMENT '评分（0-100）',
     `comment` TEXT DEFAULT NULL COMMENT '审核意见',
@@ -141,6 +145,25 @@ CREATE TABLE IF NOT EXISTS `review_record` (
     CONSTRAINT `fk_review_task` FOREIGN KEY (`task_id`) REFERENCES `task` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_review_assessor` FOREIGN KEY (`assessor_id`) REFERENCES `user` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='审核记录表';
+
+-- 任务审核项目表
+CREATE TABLE IF NOT EXISTS `task_review_item` (
+    `id` BIGINT(20) NOT NULL AUTO_INCREMENT COMMENT '任务审核项目ID',
+    `task_id` BIGINT(20) NOT NULL COMMENT '任务ID',
+    `item_code` VARCHAR(20) NOT NULL COMMENT '备案项目编码',
+    `item_name` VARCHAR(255) NOT NULL COMMENT '备案项目名称',
+    `assessor_id` BIGINT(20) NOT NULL COMMENT '审核员ID',
+    `status` VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING-待审核，REVIEWING-审核中，APPROVED-审核通过，REJECTED-需修改，CANCELLED-已取消',
+    `create_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `update_time` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (`id`),
+    KEY `idx_task_id` (`task_id`),
+    KEY `idx_assessor_id` (`assessor_id`),
+    KEY `idx_item_code` (`item_code`),
+    KEY `idx_status` (`status`),
+    CONSTRAINT `fk_task_review_item_task` FOREIGN KEY (`task_id`) REFERENCES `task` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_task_review_item_assessor` FOREIGN KEY (`assessor_id`) REFERENCES `user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='任务审核项目表';
 
 -- 通知表
 CREATE TABLE IF NOT EXISTS `notification` (

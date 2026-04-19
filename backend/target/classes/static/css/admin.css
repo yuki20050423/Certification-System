@@ -2660,6 +2660,52 @@
     font-weight: 600;
 }
 
+.directory-list {
+    display: grid;
+    gap: 16px;
+}
+
+.directory-card {
+    border: 1px solid #e8e9ea;
+    border-radius: 12px;
+    padding: 18px;
+    background: #fbfcff;
+}
+
+.directory-card.has-files {
+    border-color: rgba(22, 93, 255, 0.24);
+    background: rgba(22, 93, 255, 0.03);
+}
+
+.directory-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+}
+
+.directory-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2C3E50;
+}
+
+.directory-meta {
+    font-size: 13px;
+    color: #6b7280;
+    margin-top: 4px;
+}
+
+.directory-empty {
+    padding: 18px 12px;
+    border-radius: 10px;
+    background: #fff;
+    color: #6b7280;
+    text-align: center;
+}
+
 .search-tabs {
     display: flex;
     gap: 10px;

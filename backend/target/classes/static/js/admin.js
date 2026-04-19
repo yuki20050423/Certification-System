@@ -14,6 +14,7 @@ let currentCoursePage = 1;
 let savedScrollPosition = 0;
 let currentSearchType = '';
 let currentGrade = '';
+let currentTaskRequiredItems = [];
 
 const ITEM_DESC_MAP = {
     "1": "教材封面及目录",
@@ -29,6 +30,71 @@ const ITEM_DESC_MAP = {
     "11": "课程设计报告",
     "12": "作业"
 };
+
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatTaskTitle(task) {
+    if (!task) return '-';
+    const courseName = task.courseName || '未命名课程';
+    const courseCode = task.courseCode ? `（${task.courseCode}）` : '';
+    return `${courseName}${courseCode}`;
+}
+
+function compareZhText(a, b) {
+    return String(a || '').localeCompare(String(b || ''), 'zh-Hans-CN-u-co-pinyin');
+}
+
+function buildSortedUniqueOptions(values) {
+    return [...new Set((values || []).map(value => String(value || '').trim()).filter(Boolean))]
+        .sort(compareZhText);
+}
+
+function parseRequiredItems(materialReq) {
+    if (!materialReq) return [];
+
+    const items = [];
+    const added = new Set();
+
+    materialReq.split(/[,，;；\n]+/).forEach(token => {
+        const match = token.trim().match(/(1[0-2]|[1-9])/);
+        const code = match ? match[1] : null;
+        if (code && ITEM_DESC_MAP[code] && !added.has(code)) {
+            items.push({ code, name: ITEM_DESC_MAP[code] });
+            added.add(code);
+        }
+    });
+
+    if (items.length === 0) {
+        Object.entries(ITEM_DESC_MAP).forEach(([code, name]) => {
+            if (materialReq.includes(name) && !added.has(code)) {
+                items.push({ code, name });
+                added.add(code);
+            }
+        });
+    }
+
+    return items;
+}
+
+function groupFilesByItem(files) {
+    const grouped = new Map();
+    (files || []).forEach(file => {
+        const key = file.itemCode || '__default__';
+        if (!grouped.has(key)) {
+            grouped.set(key, []);
+        }
+        grouped.get(key).push(file);
+    });
+    return grouped;
+}
 
 document.addEventListener('DOMContentLoaded', function () {
     initAdminPage();
@@ -373,7 +439,7 @@ async function loadTasks() {
 
     tbody.innerHTML = `
         <tr>
-            <td colspan="6" class="loading-row">
+            <td colspan="8" class="loading-row">
                 <i class="fas fa-spinner fa-spin"></i> 加载中...
             </td>
         </tr>
@@ -393,7 +459,7 @@ async function loadTasks() {
         } else {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="6" class="loading-row">
+                    <td colspan="8" class="loading-row">
                         <i class="fas fa-exclamation-circle"></i> 加载失败: ${data.message}
                     </td>
                 </tr>
@@ -403,7 +469,7 @@ async function loadTasks() {
         console.error('加载任务列表失败:', error);
         tbody.innerHTML = `
             <tr>
-                <td colspan="6" class="loading-row">
+                <td colspan="8" class="loading-row">
                     <i class="fas fa-exclamation-circle"></i> 网络错误，请稍后重试
                 </td>
             </tr>
@@ -417,7 +483,7 @@ function renderTasks(tasks) {
     if (!tasks || tasks.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="7" class="loading-row">
+                <td colspan="8" class="loading-row">
                     <i class="fas fa-inbox"></i> 暂无数据
                 </td>
             </tr>
@@ -430,6 +496,7 @@ function renderTasks(tasks) {
         return `
         <tr>
             <td>${task.courseName || '-'}</td>
+            <td>${task.courseCode || '-'}</td>
             <td>${task.semester || '-'}</td>
             <td>${task.teacherName || '-'}</td>
             <td>${task.assessorName || '-'}</td>
@@ -462,8 +529,6 @@ function getStatusClass(status) {
             return 'pending';
         case 'SUBMITTED':
             return 'submitted';
-        case 'PENDING_REVIEW':
-            return 'reviewing';
         case 'REVIEWING':
             return 'reviewing';
         case 'APPROVED':
@@ -479,8 +544,7 @@ function getStatusClass(status) {
 function getStatusDesc(status) {
     const map = {
         'PENDING_UPLOAD': '待上传',
-        'SUBMITTED': '已提交',
-        'PENDING_REVIEW': '审核中',   // 新增
+        'SUBMITTED': '待审核',
         'REVIEWING': '审核中',
         'APPROVED': '审核通过',
         'NEED_REVISION': '需修改'
@@ -2029,11 +2093,13 @@ async function viewTaskDetail(taskId) {
 
         if (data.code === 200) {
             const task = data.data;
+            currentTaskRequiredItems = parseRequiredItems(task.materialRequirements);
             console.log('获取到的任务详情:', task);
             console.log('更新前的description:', $('#detailDescription').text());
             console.log('更新前的materialRequirements:', $('#detailMaterialReq').text());
 
             $('#detailCourseName').text(task.courseName || '-');
+            $('#detailCourseCode').text(task.courseCode || '-');
             $('#detailTeachingClass').text(task.teachingClass || '-');
             $('#detailTeacher').text(`${task.teacherName || '-'} (${task.teacherWorkId || '-'})`);
             $('#detailAssessor').text(`${task.assessorName || '-'} (${task.assessorWorkId || '-'})`);
@@ -2046,9 +2112,11 @@ async function viewTaskDetail(taskId) {
 
             const newDescription = task.description || '无';
             const newMaterialReq = task.materialRequirements || '无';
+            const newReviewProjects = task.reviewProjectsDescription || '无';
 
-            $('#detailDescription').html(task.description ? formatMaterialRequirements(task.description) : '无');
+            $('#detailDescription').html(task.description || '无');
             $('#detailMaterialReq').html(task.materialRequirements ? formatMaterialRequirements(task.materialRequirements) : '无');
+            $('#detailReviewProjects').html(newReviewProjects);
 
             setTimeout(() => {
                 console.log('延迟检查 - 更新后的description:', $('#detailDescription').html());
@@ -2148,7 +2216,7 @@ $('#confirmEditTask').on('click', async function () {
 
             console.log('直接更新DOM元素');
             $('#detailDescription').html(description || '无');
-            $('#detailMaterialReq').html(materialRequirements || '无');
+            $('#detailMaterialReq').html(materialRequirements ? formatMaterialRequirements(materialRequirements) : '无');
 
             setTimeout(() => {
                 console.log('延迟检查 - 直接更新后的description:', $('#detailDescription').html());
@@ -2164,7 +2232,7 @@ $('#confirmEditTask').on('click', async function () {
 });
 
 async function loadTaskFilesForAdmin(taskId) {
-    $('#filesTableBody').html('<tr><td colspan="4" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载文件列表...</td></tr>');
+    $('#filesGroupsContainer').html('<div class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载文件列表...</div>');
 
     try {
         const response = await fetch(`${API_BASE_URL}/files/admin/task/${taskId}`);
@@ -2173,37 +2241,73 @@ async function loadTaskFilesForAdmin(taskId) {
         if (data.code === 200) {
             renderAdminFiles(data.data || []);
         } else {
-            $('#filesTableBody').html('<tr><td colspan="4" class="loading-row"><i class="fas fa-exclamation-circle"></i> 加载失败</td></tr>');
+            $('#filesGroupsContainer').html('<div class="loading-row"><i class="fas fa-exclamation-circle"></i> 加载失败</div>');
         }
     } catch (error) {
         console.error('加载文件列表失败:', error);
-        $('#filesTableBody').html('<tr><td colspan="4" class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</td></tr>');
+        $('#filesGroupsContainer').html('<div class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</div>');
     }
 }
 
 function renderAdminFiles(files) {
-    const tbody = $('#filesTableBody');
-    if (!files || files.length === 0) {
-        tbody.html('<tr><td colspan="4" class="loading-row"><i class="fas fa-inbox"></i> 暂无文件</td></tr>');
-        return;
-    }
+    const container = $('#filesGroupsContainer');
+    const requiredItems = currentTaskRequiredItems.length
+        ? currentTaskRequiredItems
+        : [{ code: '__default__', name: '未分类材料' }];
+    const groupedFiles = groupFilesByItem(files);
 
     let html = '';
-    files.forEach(file => {
-        html += `
-            <tr>
-                <td><i class="fas fa-file"></i> ${file.fileName}</td>
-                <td>${file.fileSizeFormatted || formatFileSize(file.fileSize)}</td>
-                <td>${formatDateTime(file.uploadTime)}</td>
-                <td>
-                    <button class="btn-icon" onclick="downloadAdminFile(${file.id}, '${file.fileName}')" title="下载">
-                        <i class="fas fa-download"></i>
-                    </button>
-                </td>
-            </tr>
-        `;
+    requiredItems.forEach(item => {
+        html += buildAdminFileGroupHtml(item.name, groupedFiles.get(item.code) || []);
     });
-    tbody.html(html);
+
+    const uncategorizedFiles = groupedFiles.get('__default__') || [];
+    if (uncategorizedFiles.length && currentTaskRequiredItems.length) {
+        html += buildAdminFileGroupHtml('未分类材料', uncategorizedFiles, '这些文件不在当前备案目录配置中');
+    }
+
+    container.html(html || '<div class="loading-row"><i class="fas fa-inbox"></i> 暂无文件</div>');
+}
+
+function buildAdminFileGroupHtml(title, files, description = '') {
+    return `
+        <div class="directory-card ${files.length ? 'has-files' : 'is-empty'}">
+            <div class="directory-card-header">
+                <div>
+                    <div class="directory-title">${escapeHtml(title)}</div>
+                    <div class="directory-meta">${description || (files.length ? `共 ${files.length} 个文件` : '当前目录暂无文件')}</div>
+                </div>
+            </div>
+            ${files.length ? `
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>文件名</th>
+                                <th>文件大小</th>
+                                <th>上传时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${files.map(file => `
+                                <tr>
+                                    <td><i class="fas fa-file"></i> ${escapeHtml(file.fileName)}</td>
+                                    <td>${file.fileSizeFormatted || formatFileSize(file.fileSize)}</td>
+                                    <td>${formatDateTime(file.uploadTime)}</td>
+                                    <td>
+                                        <button class="btn-icon" onclick="downloadAdminFile(${file.id}, '${escapeHtml(file.fileName)}')" title="下载">
+                                            <i class="fas fa-download"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : '<div class="directory-empty"><i class="fas fa-folder-open"></i> 暂未上传到该目录</div>'}
+        </div>
+    `;
 }
 
 async function downloadAdminFile(fileId, fileName) {
@@ -3082,6 +3186,7 @@ let selectedTasks = [];
 let selectedReviewProjects = [];
 let selectedAssessors = [];
 let assessorAssignments = {};
+let reviewTaskMap = new Map();
 
 // 页面加载完成后初始化审核任务分配功能
 $(document).ready(function () {
@@ -3113,8 +3218,11 @@ $(document).ready(function () {
         } else {
             $(this).addClass('selected');
             checkbox.prop('checked', true);
-            selectedTasks.push(taskId);
+            if (!selectedTasks.includes(taskId)) {
+                selectedTasks.push(taskId);
+            }
         }
+        syncReviewProjectsSelector();
     });
 
     // 复选框点击事件
@@ -3128,6 +3236,7 @@ $(document).ready(function () {
             row.removeClass('selected');
             selectedTasks = selectedTasks.filter(id => id !== taskId);
         }
+        syncReviewProjectsSelector();
     });
 
     // 步骤导航按钮
@@ -3136,15 +3245,13 @@ $(document).ready(function () {
             showToast('请至少选择一个任务', 'error');
             return;
         }
+        syncReviewProjectsSelector();
         goToStep(2);
     });
 
     $('#backToTaskSelection').on('click', () => goToStep(1));
     $('#nextToAssessorSelection').on('click', function () {
-        selectedReviewProjects = [];
-        $('#reviewProjectsGroup input[type="checkbox"]:checked').each(function () {
-            selectedReviewProjects.push($(this).val());
-        });
+        selectedReviewProjects = getCheckedReviewProjects();
         if (selectedReviewProjects.length === 0) {
             showToast('请至少选择一个审核项目', 'error');
             return;
@@ -3179,6 +3286,19 @@ $(document).ready(function () {
     $('#addToAssignment').on('click', addToAssignment);
     $('#removeFromAssignment').on('click', removeFromAssignment);
 
+    $('#selectAllReviewProjects').on('change', function () {
+        const checked = $(this).prop('checked');
+        $('#reviewProjectsGroup input[type="checkbox"]').prop('checked', checked);
+        selectedReviewProjects = getCheckedReviewProjects();
+    });
+
+    $('#reviewProjectsGroup').on('change', 'input[type="checkbox"]', function () {
+        const total = $('#reviewProjectsGroup input[type="checkbox"]').length;
+        const checked = $('#reviewProjectsGroup input[type="checkbox"]:checked').length;
+        $('#selectAllReviewProjects').prop('checked', total > 0 && total === checked);
+        selectedReviewProjects = getCheckedReviewProjects();
+    });
+
     // ---------- 新增：未来课程教师检索 ----------
     const $teacherInput = $('#futureCourseTeacher');
     // 防抖输入检索
@@ -3203,12 +3323,13 @@ function initReviewAssignView() {
     selectedReviewProjects = [];
     selectedAssessors = [];
     assessorAssignments = {};
+    reviewTaskMap = new Map();
     goToStep(1);
 
     // 重置表单
     $('#reviewTaskStatusFilter').val('');
     $('#assessorSearchInput').val('');
-    $('#reviewProjectsGroup input[type="checkbox"]').prop('checked', false);
+    renderReviewProjectsSelector([]);
 
     // 设置默认截止日期为一周后
     const defaultDate = new Date();
@@ -3216,7 +3337,7 @@ function initReviewAssignView() {
     $('#reviewDeadline').val(formatDateForInput(defaultDate));
 
     // 清空表格和列表
-    $('#reviewTasksTableBody').html('<tr><td colspan="6" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>');
+    $('#reviewTasksTableBody').html('<tr><td colspan="7" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>');
     $('#availableAssessorsList').empty();
     $('#assignedAssessorsList').empty();
 
@@ -3238,45 +3359,53 @@ async function loadReviewTasks() {
         if (data.code === 200) {
             renderReviewTasksTable(data.data || []);
         } else {
-            $('#reviewTasksTableBody').html(`<tr><td colspan="6" class="loading-row">加载失败：${data.msg || '未知错误'}</td></tr>`);
+            $('#reviewTasksTableBody').html(`<tr><td colspan="7" class="loading-row">加载失败：${data.msg || '未知错误'}</td></tr>`);
         }
     } catch (error) {
         console.error('加载审核任务失败', error);
-        $('#reviewTasksTableBody').html('<tr><td colspan="6" class="loading-row">网络错误，请稍后重试</td></tr>');
+        $('#reviewTasksTableBody').html('<tr><td colspan="7" class="loading-row">网络错误，请稍后重试</td></tr>');
     }
 }
 
 // 渲染审核任务表格
 function renderReviewTasksTable(tasks) {
     const tbody = $('#reviewTasksTableBody');
+    reviewTaskMap = new Map();
     if (tasks.length === 0) {
-        tbody.html('<tr><td colspan="6" class="loading-row">暂无符合条件的任务</td></tr>');
+        selectedTasks = [];
+        tbody.html('<tr><td colspan="7" class="loading-row">暂无符合条件的任务</td></tr>');
+        syncReviewProjectsSelector();
         return;
     }
 
     let html = '';
     tasks.forEach(task => {
+        reviewTaskMap.set(task.id, task);
         const statusMap = {
             'PENDING_UPLOAD': { text: '待上传', class: 'status-pending' },
-            'SUBMITTED': { text: '已提交', class: 'status-submitted' },
+            'SUBMITTED': { text: '待审核', class: 'status-submitted' },
             'REVIEWING': { text: '审核中', class: 'status-reviewing' },
             'APPROVED': { text: '已通过', class: 'status-approved' },
             'NEED_REVISION': { text: '需修改', class: 'status-revision' }
         };
         const statusInfo = statusMap[task.status] || { text: task.status, class: '' };
+        const isSelected = selectedTasks.includes(task.id);
 
         html += `
-            <tr class="task-row" data-task-id="${task.id}">
+            <tr class="task-row ${isSelected ? 'selected' : ''}" data-task-id="${task.id}">
                 <td>${task.courseName}</td>
+                <td>${task.courseCode || '-'}</td>
                 <td>${task.semester}</td>
                 <td>${task.teacherName || '未分配'}</td>
                 <td>${formatDate(task.deadline)}</td>
                 <td><span class="status-badge ${statusInfo.class}">${statusInfo.text}</span></td>
-                <td><input type="checkbox" class="task-checkbox" value="${task.id}"></td>
+                <td><input type="checkbox" class="task-checkbox" value="${task.id}" ${isSelected ? 'checked' : ''}></td>
             </tr>
         `;
     });
+    selectedTasks = selectedTasks.filter(taskId => reviewTaskMap.has(taskId));
     tbody.html(html);
+    syncReviewProjectsSelector();
 }
 
 // 更新选中的任务
@@ -3303,11 +3432,84 @@ function goToStep(stepNumber) {
 
     // 特殊处理：步骤2时更新选中项目
     if (stepNumber === 2) {
-        selectedReviewProjects = [];
-        $('#reviewProjectsGroup input[type="checkbox"]:checked').each(function () {
-            selectedReviewProjects.push($(this).val());
-        });
+        syncReviewProjectsSelector();
     }
+}
+
+function getCheckedReviewProjects() {
+    const projectCodes = [];
+    $('#reviewProjectsGroup input[type="checkbox"]:checked').each(function () {
+        projectCodes.push($(this).val());
+    });
+    return projectCodes;
+}
+
+function getSelectedReviewTasks() {
+    return selectedTasks
+        .map(taskId => reviewTaskMap.get(taskId))
+        .filter(Boolean);
+}
+
+function getSharedAvailableProjects(tasks) {
+    if (!tasks.length) {
+        return [];
+    }
+
+    const commonCodes = new Set((tasks[0].availableReviewProjects || []).map(project => project.code));
+    tasks.slice(1).forEach(task => {
+        const taskCodes = new Set((task.availableReviewProjects || []).map(project => project.code));
+        Array.from(commonCodes).forEach(code => {
+            if (!taskCodes.has(code)) {
+                commonCodes.delete(code);
+            }
+        });
+    });
+
+    return (tasks[0].availableReviewProjects || [])
+        .filter(project => commonCodes.has(project.code))
+        .map(project => ({
+            code: project.code,
+            name: project.name || ITEM_DESC_MAP[project.code] || `项目 ${project.code}`
+        }));
+}
+
+function renderReviewProjectsSelector(projects) {
+    const container = $('#reviewProjectsGroup');
+    const hint = $('#reviewProjectsHint');
+    const selectAll = $('#selectAllReviewProjects');
+
+    if (!projects.length) {
+        container.html('');
+        selectAll.prop('checked', false).prop('disabled', true);
+        if (selectedTasks.length === 0) {
+            hint.text('请先在上一步选择任务。');
+        } else {
+            hint.text('当前所选任务没有共同可分配的审核项目，请调整任务选择。');
+        }
+        selectedReviewProjects = [];
+        return;
+    }
+
+    const validCodes = new Set(projects.map(project => project.code));
+    selectedReviewProjects = selectedReviewProjects.filter(code => validCodes.has(code));
+    hint.text(`仅显示所选任务共同拥有且尚未审核通过的项目，共 ${projects.length} 项。`);
+    selectAll.prop('disabled', false);
+
+    container.html(projects.map(project => `
+        <label class="checkbox-item">
+            <input type="checkbox" value="${project.code}" ${selectedReviewProjects.includes(project.code) ? 'checked' : ''}>
+            <span>${escapeHtml(project.code)}-${escapeHtml(project.name)}</span>
+        </label>
+    `).join(''));
+
+    const checkedCount = container.find('input[type="checkbox"]:checked').length;
+    selectAll.prop('checked', checkedCount > 0 && checkedCount === projects.length);
+}
+
+function syncReviewProjectsSelector() {
+    const selectedTaskList = getSelectedReviewTasks();
+    const sharedProjects = getSharedAvailableProjects(selectedTaskList);
+    renderReviewProjectsSelector(sharedProjects);
 }
 
 // 加载审核人列表
@@ -3425,13 +3627,12 @@ function renderAssignedAssessors() {
     }
 
     // 获取任务信息
-    const tasks = [];
-    $('#reviewTasksTableBody tr.task-row').each(function () {
-        const taskId = $(this).data('task-id');
-        const courseName = $(this).find('td:eq(0)').text();
-        const semester = $(this).find('td:eq(1)').text();
-        tasks.push({ id: taskId, courseName, semester });
-    });
+    const tasks = Array.from(reviewTaskMap.values()).map(task => ({
+        id: task.id,
+        courseName: task.courseName,
+        courseCode: task.courseCode,
+        semester: task.semester
+    }));
 
     let html = '';
     assessorIds.forEach(id => {
@@ -3453,7 +3654,7 @@ function renderAssignedAssessors() {
                 return `
                                 <div class="task-item">
                                     <input type="checkbox" class="task-select-checkbox" value="${task.id}" checked>
-                                    <span class="task-name">${task.courseName}</span>
+                                    <span class="task-name">${formatTaskTitle(task)}</span>
                                     <span class="task-semester">(${task.semester})</span>
                                 </div>
                             `;
@@ -3486,11 +3687,8 @@ function renderAssignedAssessors() {
 function showAssignmentSummary() {
     // 获取任务信息
     const taskInfoMap = {};
-    $('#reviewTasksTableBody tr.task-row').each(function () {
-        const taskId = $(this).data('task-id');
-        const courseName = $(this).find('td:eq(0)').text();
-        const semester = $(this).find('td:eq(1)').text();
-        taskInfoMap[taskId] = `${courseName} (${semester})`;
+    reviewTaskMap.forEach(task => {
+        taskInfoMap[task.id] = `${formatTaskTitle(task)} (${task.semester || '-'})`;
     });
 
     // 选中的任务
@@ -3501,24 +3699,9 @@ function showAssignmentSummary() {
     $('#selectedTasksSummary').html(tasksHtml || '<div class="empty-message">无</div>');
 
     // 审核项目名称映射
-    const projectNameMap = {
-        '1': '1-教材封面及目录',
-        '2': '2-课程大纲',
-        '3': '3-电子教案',
-        '4': '4-课程评分标准',
-        '5': '5-课程目标达成度评价表',
-        '6': '6-空白试卷',
-        '7': '7-试卷参考答案及评分标准',
-        '8': '8-15份学生试卷',
-        '9': '9-成绩单(平时成绩、总评成绩)',
-        '10': '10-成绩分析表',
-        '11': '11-课程设计报告',
-        '12': '12-作业'
-    };
-
     // 选中的审核项目
     const projectsHtml = selectedReviewProjects.map(project => {
-        const projectName = projectNameMap[project] || project;
+        const projectName = ITEM_DESC_MAP[project] ? `${project}-${ITEM_DESC_MAP[project]}` : project;
         return `<div class="summary-item">${projectName}</div>`;
     }).join('');
     $('#selectedProjectsSummary').html(projectsHtml || '<div class="empty-message">无</div>');
@@ -4184,29 +4367,49 @@ async function loadArchiveFilterOptions() {
             });
         }
 
-        // 加载课程名称选项
-        const coursesRes = await fetch(`${API_BASE_URL}/admin/courses`);
-        const coursesData = await coursesRes.json();
-        if (coursesData.code === 200) {
-            const courses = coursesData.data.list || [];
-            const courseNames = [...new Set(courses.map(c => c.courseName))].filter(name => name);
+        // 课程名和教师名直接基于档案库任务生成，避免与分页课程接口不一致
+        const archiveRes = await fetch(`${API_BASE_URL}/admin/archive`);
+        const archiveData = await archiveRes.json();
+        if (archiveData.code === 200) {
+            const archives = archiveData.data || [];
+
+            const courseNames = buildSortedUniqueOptions(archives.map(archive => archive.courseName));
             const courseSelect = $('#archiveCourseNameFilter');
             courseSelect.empty().append('<option value="">全部</option>');
             courseNames.forEach(name => {
                 courseSelect.append(`<option value="${name}">${name}</option>`);
             });
-        }
 
-        // 加载教师选项
-        const teachersRes = await fetch(`${API_BASE_URL}/admin/teachers`);
-        const teachersData = await teachersRes.json();
-        if (teachersData.code === 200) {
-            const teachers = teachersData.data || [];
+            const teacherNames = buildSortedUniqueOptions(archives.map(archive => archive.teacherName));
             const teacherSelect = $('#archiveTeacherFilter');
             teacherSelect.empty().append('<option value="">全部</option>');
-            teachers.forEach(teacher => {
-                teacherSelect.append(`<option value="${teacher.realName}">${teacher.realName}</option>`);
+            teacherNames.forEach(name => {
+                teacherSelect.append(`<option value="${name}">${name}</option>`);
             });
+        } else {
+            // 兜底：课程接口可能是分页结构，兼容 data/data.list 两种返回
+            const coursesRes = await fetch(`${API_BASE_URL}/admin/courses`);
+            const coursesData = await coursesRes.json();
+            if (coursesData.code === 200) {
+                const courses = coursesData.data?.data || coursesData.data?.list || [];
+                const courseNames = buildSortedUniqueOptions(courses.map(course => course.courseName));
+                const courseSelect = $('#archiveCourseNameFilter');
+                courseSelect.empty().append('<option value="">全部</option>');
+                courseNames.forEach(name => {
+                    courseSelect.append(`<option value="${name}">${name}</option>`);
+                });
+            }
+
+            const teachersRes = await fetch(`${API_BASE_URL}/admin/teachers`);
+            const teachersData = await teachersRes.json();
+            if (teachersData.code === 200) {
+                const teacherNames = buildSortedUniqueOptions((teachersData.data || []).map(teacher => teacher.realName));
+                const teacherSelect = $('#archiveTeacherFilter');
+                teacherSelect.empty().append('<option value="">全部</option>');
+                teacherNames.forEach(name => {
+                    teacherSelect.append(`<option value="${name}">${name}</option>`);
+                });
+            }
         }
     } catch (error) {
         console.error('加载筛选选项失败:', error);
@@ -4222,7 +4425,7 @@ async function loadArchiveList() {
     const teacherName = $('#archiveTeacherFilterInput').val().trim() || $('#archiveTeacherFilter').val();
     const status = $('#archiveStatusFilter').val();
 
-    $('#archiveTableBody').html('<tr><td colspan="10" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>');
+    $('#archiveTableBody').html('<tr><td colspan="11" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>');
 
     try {
         let url = `${API_BASE_URL}/admin/archive`;
@@ -4240,11 +4443,11 @@ async function loadArchiveList() {
         if (data.code === 200) {
             renderArchiveList(data.data || []);
         } else {
-            $('#archiveTableBody').html(`<tr><td colspan="10" class="loading-row">加载失败: ${data.message}</td></tr>`);
+            $('#archiveTableBody').html(`<tr><td colspan="11" class="loading-row">加载失败: ${data.message}</td></tr>`);
         }
     } catch (error) {
         console.error('加载档案列表失败:', error);
-        $('#archiveTableBody').html('<tr><td colspan="10" class="loading-row">网络错误，请稍后重试</td></tr>');
+        $('#archiveTableBody').html('<tr><td colspan="11" class="loading-row">网络错误，请稍后重试</td></tr>');
     }
 }
 
@@ -4253,7 +4456,7 @@ function renderArchiveList(archives) {
     const tbody = $('#archiveTableBody');
 
     if (archives.length === 0) {
-        tbody.html('<tr><td colspan="10" class="loading-row"><i class="fas fa-inbox"></i> 暂无档案</td></tr>');
+        tbody.html('<tr><td colspan="11" class="loading-row"><i class="fas fa-inbox"></i> 暂无档案</td></tr>');
         return;
     }
 
@@ -4264,6 +4467,7 @@ function renderArchiveList(archives) {
             <tr data-task-id="${archive.id}">
                 <td><input type="checkbox" class="archive-checkbox" value="${archive.id}"></td>
                 <td>${archive.courseName || '-'}</td>
+                <td>${archive.courseCode || '-'}</td>
                 <td>${archive.teachingClass || '-'}</td>
                 <td>${archive.teacherName || '-'}</td>
                 <td>${archive.semester || '-'}</td>
@@ -4382,19 +4586,9 @@ $(document).on('click', '.menu-item[data-view="archive"]', function () {
 // 添加转换函数
 function formatMaterialRequirements(materialReq) {
     if (!materialReq) return '无';
-    // 如果包含中文描述则直接返回（兼容已存储为文字的情况）
-    if (/[教材|大纲|教案|评分|达成|试卷|成绩|设计|作业]/.test(materialReq)) return materialReq;
-    const items = materialReq.split(',').map(s => s.trim());
-    const descs = items.map(item => {
-        // 尝试提取数字编号，忽略可能的前缀（如“1-教材封面及目录”中的数字部分）
-        const match = item.match(/(\d+)/);
-        if (match) {
-            const num = match[1];
-            return ITEM_DESC_MAP[num] ? `${num}-${ITEM_DESC_MAP[num]}` : item;
-        }
-        return item;
-    });
-    return descs.join('；');
+    const items = parseRequiredItems(materialReq);
+    if (!items.length) return materialReq;
+    return items.map(item => `${item.code}-${item.name}`).join('；');
 }
 
 // 检索教师（供未来课程教师输入框调用）

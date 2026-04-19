@@ -232,7 +232,7 @@ Certification-System/
 
 ### 环境要求
 
-- JDK 21（与pom.xml中java.version一致）
+- JDK 17
 - MySQL 8.0+
 - Maven 3.6+
 
@@ -253,11 +253,10 @@ Certification-System/
 
 3. **连接教务网**
    打开教务网，登录成功后查看Cookie，复制 JSESSIONID 和 TWFID 的值
-   编辑`backend/src/main/java/com/swjtu/certification/util/GetTeacherList`，修改 JSESSIONID 和 TWFID 的值
+   编辑`backend/src/main/java/com/swjtu/certification/util/GetTeacherList`，修改 JSESSIONID 的值
    ```yaml
    private static final Map<String, String> COOKIES = new HashMap<>() {{
    put("JSESSIONID", "JSESSIONID的值");
-   put("TWFID", "TWFID的值");
    put("platformMultilingual_-_edu.cn", "zh_CN");
    }};
    ```
@@ -278,12 +277,11 @@ Certification-System/
    helper.setFrom("924107131@qq.com");   // 必须与配置的 username 一致
    ```
 
-4. **运行项目**
+5. **运行项目**
    在IDE中右键 `CertificationApplication.java` -> Run
    后端服务默认运行在 `http://localhost:8080`
 
-
-5. **访问系统**  
+6. **访问系统**  
    打开浏览器访问 `http://localhost:8080`（或你配置的地址）。
 
 ### 测试账号
@@ -388,3 +386,4 @@ Certification-System/
 
 - 开发团队：西南交通大学
 - 项目用途：SRTP（大学生科研训练计划）项目成果
+

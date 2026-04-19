@@ -31,6 +31,16 @@ public class ReviewRecord {
     private Long assessorId;
 
     /**
+     * 备案项目编码
+     */
+    private String itemCode;
+
+    /**
+     * 备案项目名称
+     */
+    private String itemName;
+
+    /**
      * 审核状态：APPROVED-审核通过，REJECTED-需修改
      */
     private String reviewStatus;

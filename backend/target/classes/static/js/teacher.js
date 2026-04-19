@@ -5,6 +5,24 @@ let currentView = 'tasks';
 let currentTaskId = null;
 let currentTaskStatus = null;
 let currentTaskDeadline = null;
+let currentTaskRequiredItems = [];
+let currentTaskCanUpload = false;
+let currentTaskReviewProjects = [];
+
+const ITEM_DESC_MAP = {
+    "1": "教材封面及目录",
+    "2": "课程大纲",
+    "3": "电子教案",
+    "4": "课程评分标准",
+    "5": "课程目标达成度评价表",
+    "6": "空白试卷",
+    "7": "试卷参考答案及评分标准",
+    "8": "15份学生试卷",
+    "9": "成绩单(平时成绩、总评成绩)",
+    "10": "成绩分析表",
+    "11": "课程设计报告",
+    "12": "作业"
+};
 
 // ==================== 工具函数 ====================
 function getCurrentTeacherId() {
@@ -75,6 +93,109 @@ function getStatusDesc(status) {
     return map[status] || status;
 }
 
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function parseRequiredItems(materialReq) {
+    if (!materialReq) return [];
+
+    const items = [];
+    const added = new Set();
+
+    materialReq.split(/[,，;；\n]+/).forEach(token => {
+        const match = token.trim().match(/(1[0-2]|[1-9])/);
+        const code = match ? match[1] : null;
+        if (code && ITEM_DESC_MAP[code] && !added.has(code)) {
+            items.push({ code, name: ITEM_DESC_MAP[code] });
+            added.add(code);
+        }
+    });
+
+    if (items.length === 0) {
+        Object.entries(ITEM_DESC_MAP).forEach(([code, name]) => {
+            if (materialReq.includes(name) && !added.has(code)) {
+                items.push({ code, name });
+                added.add(code);
+            }
+        });
+    }
+
+    return items;
+}
+
+function formatMaterialRequirements(materialReq) {
+    if (!materialReq) return '无';
+    const items = parseRequiredItems(materialReq);
+    if (items.length === 0) return materialReq;
+    return items.map(item => `${item.code}-${item.name}`).join('；');
+}
+
+function groupFilesByItem(files) {
+    const grouped = new Map();
+    (files || []).forEach(file => {
+        const key = file.itemCode || '__default__';
+        if (!grouped.has(key)) {
+            grouped.set(key, []);
+        }
+        grouped.get(key).push(file);
+    });
+    return grouped;
+}
+
+function getMissingRequiredItems(requiredItems, files) {
+    if (!requiredItems.length) return [];
+    const grouped = groupFilesByItem(files);
+    return requiredItems.filter(item => !(grouped.get(item.code) || []).length);
+}
+
+function getReviewProjectInfo(itemCode) {
+    return (currentTaskReviewProjects || []).find(project => project.code === itemCode) || null;
+}
+
+function getDirectoryStatusMeta(itemCode, itemFiles = []) {
+    const project = getReviewProjectInfo(itemCode);
+    if (!project) {
+        if (currentTaskStatus === 'PENDING_UPLOAD') {
+            return { text: itemFiles.length ? '可继续上传和调整' : '待上传', editable: true };
+        }
+        return { text: itemFiles.length ? '已提交，当前不可修改' : '当前不可修改', editable: false };
+    }
+
+    if (project.status === 'APPROVED') {
+        return { text: '已审核通过，目录已锁定', editable: false };
+    }
+    if (project.status === 'REJECTED') {
+        return { text: '审核未通过，可修改后重新提交', editable: true };
+    }
+    if (project.status === 'PENDING' || project.status === 'REVIEWING') {
+        return { text: '审核处理中，当前不可修改', editable: false };
+    }
+    if (project.editable) {
+        return { text: itemFiles.length ? '可继续上传和调整' : '待上传', editable: true };
+    }
+    return { text: itemFiles.length ? '已提交待审核，当前不可修改' : '已提交，当前不可修改', editable: false };
+}
+
+function buildDirectoryTitle(item) {
+    const project = getReviewProjectInfo(item.code);
+    const approvedMark = project && project.status === 'APPROVED'
+        ? '<span class="directory-approved-mark"><i class="fas fa-check-circle"></i> 已通过</span>'
+        : '';
+    return `
+        <div class="directory-title-row">
+            <span class="directory-title-text">${escapeHtml(item.name)}</span>
+            ${approvedMark}
+        </div>
+    `;
+}
+
 // ==================== 页面初始化 ====================
 $(document).ready(function () {
     console.log('teacher.js 已加载，初始化页面...');
@@ -87,49 +208,6 @@ function initTeacherPage() {
     initUserMenu();
     loadTasks();
     loadUnreadCount();
-
-    // 批量上传按钮点击事件 - 动态创建原生 input
-    $('#batchUploadBtn').off('click').on('click', function (e) {
-        e.preventDefault();
-        console.log('【批量上传按钮点击】时间戳:', Date.now());
-
-        const teacherId = getCurrentTeacherId();
-        if (!teacherId) {
-            showToast('未获取到教师ID，请重新登录', 'error');
-            return;
-        }
-        if (!currentTaskId) {
-            showToast('请先选择任务', 'error');
-            return;
-        }
-
-        // 创建原生文件输入框
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.multiple = true;
-        input.accept = '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png';
-        input.style.display = 'none';
-        document.body.appendChild(input);
-
-        // 监听 change 事件（选择文件后触发）
-        input.addEventListener('change', function (e) {
-            console.log('【input change 触发】时间戳:', Date.now(), '事件对象:', e);
-            const files = Array.from(this.files);
-            if (files.length === 0) {
-                console.warn('未选择任何文件');
-                document.body.removeChild(input);
-                return;
-            }
-            console.log('选择的文件数:', files.length);
-            // 调用上传函数
-            batchUploadFiles(files);
-            // 移除 input 元素，避免累积
-            document.body.removeChild(input);
-        });
-
-        // 模拟点击打开文件选择器
-        input.click();
-    });
 }
 
 function checkTeacherAuth() {
@@ -272,7 +350,7 @@ function renderTasks(tasks) {
                     <button class="btn secondary-btn btn-sm" onclick="viewTaskDetail(${task.id})">
                         <i class="fas fa-eye"></i> 详情
                     </button>
-                    ${task.status === 'PENDING_UPLOAD' || task.status === 'NEED_REVISION' ? `
+                    ${task.canUpload ? `
                         <button class="btn primary-btn btn-sm" onclick="viewTaskDetail(${task.id})">
                             <i class="fas fa-upload"></i> 上传
                         </button>
@@ -301,6 +379,9 @@ async function viewTaskDetail(taskId) {
             const task = data.data;
             currentTaskStatus = task.status;
             currentTaskDeadline = task.deadline;
+            currentTaskRequiredItems = parseRequiredItems(task.materialRequirements);
+            currentTaskCanUpload = !!task.canUpload;
+            currentTaskReviewProjects = task.reviewProjects || [];
 
             $('#detailCourseName').text(task.courseName || '-');
             $('#detailTeachingClass').text(task.teachingClass || '-');
@@ -308,12 +389,12 @@ async function viewTaskDetail(taskId) {
             $('#detailDeadline').text(formatDateTime(task.deadline));
             $('#detailStatus').text(getStatusDesc(task.status)).attr('class', 'status-badge ' + getStatusClass(task.status));
             $('#detailDescription').text(task.description || '无');
-            $('#detailMaterialReq').text(task.materialRequirements || '无');
+            $('#detailMaterialReq').text(formatMaterialRequirements(task.materialRequirements));
 
-            const canUpload = task.status === 'PENDING_UPLOAD' || task.status === 'NEED_REVISION';
-            $('#uploadSection').toggle(canUpload);
-            $('#submitSection').toggle(canUpload);
+            $('#uploadSection').toggle(currentTaskCanUpload);
+            $('#submitSection').toggle(currentTaskCanUpload);
 
+            renderUploadDirectories();
             loadTaskFiles(taskId);
             loadLatestReview(taskId);
         } else {
@@ -336,58 +417,225 @@ async function loadTaskFiles(taskId) {
     const teacherId = getCurrentTeacherId();
     if (!teacherId) return;
 
-    $('#filesTableBody').html('<tr><td colspan="4" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载文件列表...</td></tr>');
+    $('#fileDirectoriesContainer').html('<div class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载文件列表...</div>');
 
     try {
         const response = await fetch(`${API_BASE_URL}/files/task/${taskId}?teacherId=${teacherId}`);
         const data = await response.json();
 
         if (data.code === 200) {
-            renderFiles(data.data || []);
-            const canSubmit = (currentTaskStatus === 'PENDING_UPLOAD' || currentTaskStatus === 'NEED_REVISION') && data.data.length > 0;
-            $('#submitTaskBtn').prop('disabled', !canSubmit);
+            const files = data.data || [];
+            renderFiles(files);
+            updateSubmitState(files);
+            renderUploadDirectories(files);
         } else {
-            $('#filesTableBody').html('<tr><td colspan="4" class="loading-row"><i class="fas fa-exclamation-circle"></i> 加载失败</td></tr>');
+            $('#fileDirectoriesContainer').html('<div class="loading-row"><i class="fas fa-exclamation-circle"></i> 加载失败</div>');
         }
     } catch (error) {
         console.error('加载文件列表失败:', error);
-        $('#filesTableBody').html('<tr><td colspan="4" class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</td></tr>');
+        $('#fileDirectoriesContainer').html('<div class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</div>');
     }
 }
 
 function renderFiles(files) {
-    const tbody = $('#filesTableBody');
-    if (!files || files.length === 0) {
-        tbody.html('<tr><td colspan="4" class="loading-row"><i class="fas fa-inbox"></i> 暂无文件</td></tr>');
+    const container = $('#fileDirectoriesContainer');
+    const requiredItems = currentTaskRequiredItems.length
+        ? currentTaskRequiredItems
+        : [{ code: '__default__', name: '未分类材料' }];
+    const groupedFiles = groupFilesByItem(files);
+
+    if ((!files || files.length === 0) && !requiredItems.length) {
+        container.html('<div class="loading-row"><i class="fas fa-inbox"></i> 暂无文件</div>');
         return;
     }
 
     const now = new Date();
     const deadline = new Date(currentTaskDeadline);
-    const canDelete = (currentTaskStatus === 'PENDING_UPLOAD' || currentTaskStatus === 'NEED_REVISION') && now <= deadline;
+    const canDelete = currentTaskCanUpload && now <= deadline;
 
     let html = '';
-    files.forEach(file => {
+    requiredItems.forEach(item => {
+        const itemFiles = groupedFiles.get(item.code) || [];
+        const statusMeta = getDirectoryStatusMeta(item.code, itemFiles);
         html += `
-            <tr>
-                <td><i class="fas fa-file"></i> ${file.fileName}</td>
-                <td>${file.fileSizeFormatted || formatFileSize(file.fileSize)}</td>
-                <td>${formatDateTime(file.uploadTime)}</td>
-                <td>
-                    <button class="btn-icon" onclick="downloadFile(${file.id}, '${file.fileName}')" title="下载">
-                        <i class="fas fa-download"></i>
-                    </button>
-                    ${canDelete ? `
-                        <button class="btn-icon danger" onclick="deleteFile(${file.id})" title="删除">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    ` : ''}
-                </td>
-            </tr>
+            <div class="directory-card ${itemFiles.length ? 'has-files' : 'is-empty'}">
+                <div class="directory-card-header">
+                    <div>
+                        <div class="directory-title">${buildDirectoryTitle(item)}</div>
+                        <div class="directory-meta">${itemFiles.length ? `已上传 ${itemFiles.length} 个文件` : '当前目录暂无文件'}，${escapeHtml(statusMeta.text)}</div>
+                    </div>
+                </div>
+                ${itemFiles.length ? `
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>文件名</th>
+                                    <th>文件大小</th>
+                                    <th>上传时间</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${itemFiles.map(file => `
+                                    <tr>
+                                        <td><i class="fas fa-file"></i> ${escapeHtml(file.fileName)}</td>
+                                        <td>${file.fileSizeFormatted || formatFileSize(file.fileSize)}</td>
+                                        <td>${formatDateTime(file.uploadTime)}</td>
+                                        <td>
+                                            <button class="btn-icon" onclick="downloadFile(${file.id}, '${escapeHtml(file.fileName)}')" title="下载">
+                                                <i class="fas fa-download"></i>
+                                            </button>
+                                            ${canDelete && file.canEdit ? `
+                                                <button class="btn-icon danger" onclick="deleteFile(${file.id})" title="删除">
+                                                    <i class="fas fa-trash"></i>
+                                                </button>
+                                            ` : ''}
+                                        </td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                ` : '<div class="directory-empty"><i class="fas fa-folder-open"></i> 暂未上传到该目录</div>'}
+            </div>
         `;
     });
-    tbody.html(html);
+
+    const uncategorizedFiles = groupedFiles.get('__default__') || [];
+    if (uncategorizedFiles.length && currentTaskRequiredItems.length) {
+        html += buildUncategorizedGroupHtml(uncategorizedFiles, canDelete);
+    }
+
+    container.html(html || '<div class="loading-row"><i class="fas fa-inbox"></i> 暂无文件</div>');
 }
+
+function renderUploadDirectories(files = []) {
+    const container = $('#uploadDirectoriesContainer');
+    if (!currentTaskCanUpload) {
+        container.empty();
+        return;
+    }
+
+    const groupedFiles = groupFilesByItem(files);
+    const items = currentTaskRequiredItems.length
+        ? currentTaskRequiredItems
+        : [{ code: '__default__', name: '未分类材料' }];
+
+    let html = '';
+    items.forEach(item => {
+        const itemFiles = groupedFiles.get(item.code) || [];
+        const statusMeta = getDirectoryStatusMeta(item.code, itemFiles);
+        html += `
+            <div class="directory-card upload-directory-card ${itemFiles.length ? 'has-files' : 'is-empty'}">
+                <div class="directory-card-header">
+                    <div>
+                        <div class="directory-title">${buildDirectoryTitle(item)}</div>
+                        <div class="directory-meta">${itemFiles.length ? `已上传 ${itemFiles.length} 个文件` : '该目录还没有文件'}，${escapeHtml(statusMeta.text)}</div>
+                    </div>
+                    ${statusMeta.editable ? `
+                        <button class="btn primary-btn btn-sm" onclick="openDirectoryUpload('${item.code}')">
+                            <i class="fas fa-files-medical"></i> 上传到该目录
+                        </button>
+                    ` : `
+                        <button class="btn secondary-btn btn-sm" type="button" disabled>
+                            <i class="fas fa-lock"></i> 当前不可修改
+                        </button>
+                    `}
+                </div>
+            </div>
+        `;
+    });
+
+    container.html(html);
+}
+
+function buildUncategorizedGroupHtml(files, canDelete) {
+    return `
+        <div class="directory-card">
+            <div class="directory-card-header">
+                <div>
+                    <div class="directory-title">未分类材料</div>
+                    <div class="directory-meta">这些文件不在当前备案目录配置中</div>
+                </div>
+            </div>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>文件名</th>
+                            <th>文件大小</th>
+                            <th>上传时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${files.map(file => `
+                            <tr>
+                                <td><i class="fas fa-file"></i> ${escapeHtml(file.fileName)}</td>
+                                <td>${file.fileSizeFormatted || formatFileSize(file.fileSize)}</td>
+                                <td>${formatDateTime(file.uploadTime)}</td>
+                                <td>
+                                    <button class="btn-icon" onclick="downloadFile(${file.id}, '${escapeHtml(file.fileName)}')" title="下载">
+                                        <i class="fas fa-download"></i>
+                                    </button>
+                                    ${canDelete && file.canEdit ? `
+                                        <button class="btn-icon danger" onclick="deleteFile(${file.id})" title="删除">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    ` : ''}
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+}
+
+function updateSubmitState(files) {
+    const canSubmitStatus = currentTaskCanUpload;
+    const editableItems = currentTaskStatus === 'PENDING_UPLOAD'
+        ? currentTaskRequiredItems
+        : currentTaskRequiredItems.filter(item => {
+            const project = getReviewProjectInfo(item.code);
+            return project && project.editable;
+        });
+    const missingItems = getMissingRequiredItems(editableItems, files);
+    const canSubmit = canSubmitStatus && files.length > 0 && missingItems.length === 0;
+
+    $('#submitTaskBtn').prop('disabled', !canSubmit);
+    if (!files.length) {
+        $('#submitHintText').text('需至少上传一个文件后方可提交');
+    } else if (missingItems.length) {
+        $('#submitHintText').text(`以下可修改目录还缺文件：${missingItems.map(item => item.name).join('、')}`);
+    } else if (currentTaskStatus !== 'PENDING_UPLOAD') {
+        $('#submitHintText').text('已为退回目录补充文件后，可重新提交给原审核员复审');
+    } else {
+        $('#submitHintText').text('各备案目录都已上传，当前可以提交审核');
+    }
+}
+
+window.openDirectoryUpload = function (itemCode) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
+    input.addEventListener('change', function () {
+        const files = Array.from(this.files || []);
+        document.body.removeChild(input);
+        if (!files.length) {
+            return;
+        }
+        batchUploadFiles(files, itemCode === '__default__' ? '' : itemCode);
+    });
+
+    input.click();
+};
 
 window.downloadFile = function (fileId, fileName) {
     const teacherId = getCurrentTeacherId();
@@ -419,63 +667,16 @@ window.deleteFile = async function (fileId) {
 
 // ==================== 文件上传（单文件）====================
 async function uploadFile(file) {
-    const teacherId = getCurrentTeacherId();
-    if (!teacherId) return;
-    if (!currentTaskId) {
-        showToast('请先选择任务', 'error');
-        return;
-    }
-    if (file.size > 50 * 1024 * 1024) {
-        showToast('文件大小不能超过50MB', 'error');
+    if (currentTaskRequiredItems.length) {
+        showToast('请从对应备案目录中上传文件', 'warning');
         return;
     }
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('taskId', currentTaskId);
-    formData.append('teacherId', teacherId);
-
-    $('#singleUploadBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 上传中...');
-
-    try {
-        console.log('开始上传文件:', file.name);
-        console.log('taskId:', currentTaskId, 'teacherId:', teacherId);
-
-        const response = await fetch(`${API_BASE_URL}/files/upload`, {
-            method: 'POST',
-            body: formData
-        });
-        console.log('上传响应状态:', response.status);
-
-        let data;
-        const contentType = response.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-            data = await response.json();
-            console.log('上传响应数据:', data);
-        } else {
-            const text = await response.text();
-            console.error('非JSON响应:', text);
-            showToast('服务器返回格式错误，请查看控制台', 'error');
-            return;
-        }
-
-        if (data.code === 200) {
-            showToast('文件上传成功');
-            loadTaskFiles(currentTaskId);
-        } else {
-            showToast('上传失败: ' + (data.msg || '未知错误'), 'error');
-            console.error('上传失败详情:', data);
-        }
-    } catch (error) {
-        console.error('上传异常:', error);
-        showToast('网络错误或服务器异常: ' + error.message, 'error');
-    } finally {
-        $('#singleUploadBtn').prop('disabled', false).html('<i class="fas fa-file-upload"></i> 上传选中文件');
-    }
+    await batchUploadFiles([file]);
 }
 
 // ==================== 批量上传（增强版，带重试和详细日志）====================
-async function batchUploadFiles(files) {
+async function batchUploadFiles(files, itemCode = '') {
     console.log('【batchUploadFiles 被调用】时间戳:', Date.now(), '文件数:', files.length);
     files.forEach((f, i) => console.log(`  文件[${i}]: ${f.name}, 大小: ${f.size} bytes`));
 
@@ -509,11 +710,13 @@ async function batchUploadFiles(files) {
     validFiles.forEach(file => formData.append('files', file));
     formData.append('taskId', currentTaskId);
     formData.append('teacherId', teacherId);
+    if (itemCode) {
+        formData.append('itemCode', itemCode);
+    }
 
     // 禁用按钮，显示上传中
-    const $btn = $('#batchUploadBtn');
-    const originalText = $btn.html();
-    $btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 上传中...');
+    const $submitBtn = $('#submitTaskBtn');
+    $submitBtn.prop('disabled', true);
 
     try {
         console.log('发送请求至 /files/batch-upload');
@@ -543,7 +746,7 @@ async function batchUploadFiles(files) {
         console.error('上传异常:', error);
         showToast('网络错误: ' + error.message, 'error');
     } finally {
-        $btn.prop('disabled', false).html(originalText);
+        loadTaskFiles(currentTaskId);
     }
 }
 

@@ -91,11 +91,9 @@
                     <label>状态筛选：</label>
                     <select id="taskStatusFilter">
                         <option value="">全部</option>
-                        <option value="PENDING_UPLOAD">待上传</option>
-
-                        <option value="PENDING_REVIEW">审核中</option>
+                        <option value="SUBMITTED">待审核</option>
+                        <option value="REVIEWING">审核中</option>
                         <option value="APPROVED">审核通过</option>
-                        <option value="NEED_REVISION">需修改</option>
                     </select>
                 </div>
             </div>
@@ -172,24 +170,8 @@
             <!-- 文件列表 -->
             <div class="files-section">
                 <h3>教师上传的文件</h3>
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead>
-                        <tr>
-                            <th>文件名</th>
-                            <th>文件大小</th>
-                            <th>上传时间</th>
-                            <th>操作</th>
-                        </tr>
-                        </thead>
-                        <tbody id="filesTableBody">
-                        <tr>
-                            <td colspan="4" class="loading-row">
-                                <i class="fas fa-spinner fa-spin"></i> 加载文件列表...
-                            </td>
-                        </tr>
-                        </tbody>
-                    </table>
+                <div id="filesGroupsContainer" class="directory-list">
+                    <div class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载文件列表...</div>
                 </div>
             </div>
 
@@ -197,6 +179,13 @@
             <div class="review-section">
                 <h3>审核操作</h3>
                 <div class="review-form">
+                    <div class="form-group">
+                        <label>当前审核项目 <span class="required">*</span></label>
+                        <div id="reviewItemsContainer" class="review-items-list">
+                            <div class="loading-row">加载审核项目中...</div>
+                        </div>
+                        <div class="form-help-text" id="reviewItemHint">请选择一个或多个待处理的备案项目后再审核。</div>
+                    </div>
                     <div class="form-group">
                         <label>审核结果 <span class="required">*</span></label>
                         <select class="form-input" id="reviewStatus">
@@ -251,6 +240,7 @@
                     <thead>
                     <tr>
                         <th>课程名称</th>
+                        <th>审核项目</th>
                         <th>教学班</th>
                         <th>教师姓名</th>
                         <th>审核时间</th>
@@ -262,7 +252,7 @@
                     </thead>
                     <tbody id="reviewsTableBody">
                     <tr>
-                        <td colspan="8" class="loading-row">
+                        <td colspan="9" class="loading-row">
                             <i class="fas fa-spinner fa-spin"></i> 加载中...
                         </td>
                     </tr>

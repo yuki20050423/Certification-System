@@ -18,10 +18,12 @@ import com.swjtu.certification.mapper.TeacherMapper;
 import com.swjtu.certification.mapper.UserMapper;
 import com.swjtu.certification.mapper.FileMapper;
 import com.swjtu.certification.mapper.ReviewRecordMapper;
+import com.swjtu.certification.util.CourseNameUtils;
 import com.swjtu.certification.util.GetCourseList;
 import com.swjtu.certification.util.GetTeacherList;
 import com.swjtu.certification.util.ReadWordToCsvUtil;
 import com.swjtu.certification.util.SemesterUtils;
+import com.swjtu.certification.util.TaskItemUtils;
 import com.swjtu.certification.vo.CourseVO;
 import com.swjtu.certification.vo.PageResult;
 import com.swjtu.certification.vo.TaskVO;
@@ -29,6 +31,7 @@ import com.swjtu.certification.vo.UserVO;
 import com.swjtu.certification.vo.CourseItemVO;
 import com.swjtu.certification.vo.CourseTeachingVO;
 import com.swjtu.certification.vo.ArchiveTaskVO;
+import com.swjtu.certification.vo.ReviewProjectVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Value;
@@ -76,6 +79,7 @@ public class AdminService {
     private final GetCourseList getCourseList;
     private final GetTeacherList getTeacherList;
     private final MajorMappingConfig majorMappingConfig;
+    private final ReviewWorkflowService reviewWorkflowService;
     private static final Map<String, LocalDateTime> TEACHER_FETCH_CACHE = new ConcurrentHashMap<>();
     private static final long CACHE_DURATION_DAYS = 30;
     private final EmailService emailService;
@@ -477,6 +481,29 @@ public class AdminService {
                     teacherNotificationTitle,
                     teacherNotificationContent
             );
+
+            String courseName = taskVO.getCourseName();
+            String teachingClass = taskVO.getTeachingClass();
+
+// 给教师发邮件
+            if (task.getTeacherId() != null) {
+                User teacher = userMapper.selectById(task.getTeacherId());
+                if (teacher != null && teacher.getEmail() != null && !teacher.getEmail().isEmpty()) {
+                    String subject = "【专业认证备案】催办提醒 - " + courseName;
+                    String content = buildRemindEmailContent(courseName, teachingClass, taskVO.getStatusDesc(), task.getDeadline().toString());
+                    emailService.sendHtmlMail(teacher.getEmail(), subject, content);
+                }
+            }
+
+            // 给审核员发邮件
+            if (task.getAssessorId() != null) {
+                User assessor = userMapper.selectById(task.getAssessorId());
+                if (assessor != null && assessor.getEmail() != null && !assessor.getEmail().isEmpty()) {
+                    String subject = "【专业认证备案】催办提醒 - " + courseName;
+                    String content = buildRemindEmailContent(courseName, teachingClass, taskVO.getStatusDesc(), task.getDeadline().toString());
+                    emailService.sendHtmlMail(assessor.getEmail(), subject, content);
+                }
+            }
         }
 
         if (task.getAssessorId() != null) {
@@ -620,15 +647,8 @@ public class AdminService {
         vo.setMaterialRequirements(task.getMaterialRequirements());
 
         // 设置状态描述
-        switch (task.getStatus()) {
-            case "PENDING_UPLOAD": vo.setStatusDesc("待上传"); break;
-            case "SUBMITTED": vo.setStatusDesc("已提交"); break;
-            case "PENDING_REVIEW": vo.setStatusDesc("审核中"); break;
-            case "REVIEWING": vo.setStatusDesc("审核中"); break;
-            case "APPROVED": vo.setStatusDesc("审核通过"); break;
-            case "NEED_REVISION": vo.setStatusDesc("需修改"); break;
-            default: vo.setStatusDesc("未知");
-        }
+        vo.setStatusDesc(getTaskStatusDescription(task.getStatus()));
+        vo.setAvailableReviewProjects(reviewWorkflowService.getAvailableReviewProjects(task));
 
         // 获取课程信息：优先从 teacher 表查询（教学班），若不存在则从 course 表查询（未来课程）
         Teacher teacherEntity = null;
@@ -638,6 +658,7 @@ public class AdminService {
         if (teacherEntity != null) {
             // 教学班信息
             vo.setCourseName(teacherEntity.getCourseName());
+            vo.setCourseCode(teacherEntity.getCourseCode());
             vo.setTeachingClass(teacherEntity.getTeachingClass());
             if (teacherEntity.getPreferred() != null) {
                 java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\d{4}");
@@ -652,11 +673,13 @@ public class AdminService {
             Course course = courseMapper.selectById(task.getCourseId());
             if (course != null) {
                 vo.setCourseName(course.getCourseName());
+                vo.setCourseCode("");
                 vo.setTeachingClass("未开课");
                 vo.setGrade(course.getGrade());
                 vo.setSemester(course.getSemester());
             } else {
                 vo.setCourseName("未知课程");
+                vo.setCourseCode("");
                 vo.setTeachingClass("");
             }
         }
@@ -915,18 +938,18 @@ public class AdminService {
         System.out.println("=== 开始获取教师 ===");
         System.out.println("课程名: " + courseName + ", 学期: " + semester + ", 学年: " + grade + ", 专业: " + major);
 
-        // 构建缓存键：专业_年级_课程名
-        String cacheKey = major + "_" + grade + "_" + courseName;
+        // 构建缓存键：专业_年级_学期_规整后的课程名
+        String cacheKey = (major == null ? "" : major) + "_" +
+                (grade == null ? "" : grade) + "_" +
+                (semester == null ? "" : semester) + "_" +
+                CourseNameUtils.buildNormalizedCacheKey(courseName);
         LocalDateTime lastFetchTime = TEACHER_FETCH_CACHE.get(cacheKey);
         boolean cacheValid = lastFetchTime != null &&
                 lastFetchTime.isAfter(LocalDateTime.now().minusDays(CACHE_DURATION_DAYS));
 
         if (cacheValid) {
             // 缓存有效，直接从数据库读取
-            LambdaQueryWrapper<Teacher> dbWrapper = new LambdaQueryWrapper<>();
-            dbWrapper.eq(Teacher::getCourseName, courseName);
-            dbWrapper.eq(Teacher::getSemester, semester);
-            List<Teacher> dbTeachers = teacherMapper.selectList(dbWrapper);
+            List<Teacher> dbTeachers = findMatchingTeachersInDatabase(courseName, semester);
             if (dbTeachers != null && !dbTeachers.isEmpty()) {
                 List<Teacher> filtered = filterTeachersByGradeAndMajor(dbTeachers, grade, major);
                 System.out.println("使用缓存数据，返回教师数量: " + filtered.size());
@@ -935,10 +958,7 @@ public class AdminService {
         }
 
         // 缓存无效或数据库无数据，检查数据库是否已有该课程教师（可能是其他专业/年级爬取时存入的）
-        LambdaQueryWrapper<Teacher> dbWrapper = new LambdaQueryWrapper<>();
-        dbWrapper.eq(Teacher::getCourseName, courseName);
-        dbWrapper.eq(Teacher::getSemester, semester);
-        List<Teacher> dbTeachers = teacherMapper.selectList(dbWrapper);
+        List<Teacher> dbTeachers = findMatchingTeachersInDatabase(courseName, semester);
 
         if (dbTeachers != null && !dbTeachers.isEmpty()) {
             System.out.println("数据库中已存在该课程教师，数量: " + dbTeachers.size());
@@ -951,7 +971,7 @@ public class AdminService {
 
         System.out.println("数据库中不存在该课程教师，开始从网页获取");
 
-        List<Teacher> webTeachers = GetTeacherList.getTeachersByAndSemesterCourseName(semester, courseName);
+        List<Teacher> webTeachers = fetchTeachersFromWebByCourseNameRule(semester, courseName);
         System.out.println("从网页获取到教师数量: " + webTeachers.size());
 
         List<Teacher> result = new ArrayList<>();
@@ -969,13 +989,7 @@ public class AdminService {
             }
             uniqueKeys.add(uniqueKey);
 
-            LambdaQueryWrapper<Teacher> wrapper = new LambdaQueryWrapper<>();
-            wrapper.eq(Teacher::getTeacherName, webTeacher.getTeacherName());
-            wrapper.eq(Teacher::getCourseName, webTeacher.getCourseName());
-            wrapper.eq(Teacher::getSemester, webTeacher.getSemester());
-            wrapper.eq(Teacher::getTeachingClass, webTeacher.getTeachingClass());
-            List<Teacher> existingList = teacherMapper.selectList(wrapper);
-            Teacher existing = existingList.isEmpty() ? null : existingList.get(0);
+            Teacher existing = findExistingTeacherRecord(webTeacher);
 
             if (existing == null) {
                 webTeacher.setCreateTime(LocalDateTime.now());
@@ -1018,27 +1032,21 @@ public class AdminService {
         int baseYear = (flag == 1 && month <= 12 && month >= 8) ? year : (flag == 2 ? year - 1 : year - 1);
         String currentSemester = baseYear + "-" + (baseYear + 1) + "-" + flag;
 
-        // 缓存键：CURRENT_课程名
-        String cacheKey = "CURRENT_" + courseName;
+        // 缓存键：CURRENT_学期_规整后的课程名
+        String cacheKey = "CURRENT_" + currentSemester + "_" + CourseNameUtils.buildNormalizedCacheKey(courseName);
         LocalDateTime lastFetchTime = TEACHER_FETCH_CACHE.get(cacheKey);
         boolean cacheValid = lastFetchTime != null &&
                 lastFetchTime.isAfter(LocalDateTime.now().minusDays(CACHE_DURATION_DAYS));
 
         if (cacheValid) {
-            LambdaQueryWrapper<Teacher> dbWrapper = new LambdaQueryWrapper<>();
-            dbWrapper.eq(Teacher::getCourseName, courseName);
-            dbWrapper.eq(Teacher::getSemester, currentSemester);
-            List<Teacher> dbTeachers = teacherMapper.selectList(dbWrapper);
+            List<Teacher> dbTeachers = findMatchingTeachersInDatabase(courseName, currentSemester);
             if (dbTeachers != null && !dbTeachers.isEmpty()) {
                 System.out.println("使用缓存数据，返回教师数量: " + dbTeachers.size());
                 return dbTeachers;
             }
         }
 
-        LambdaQueryWrapper<Teacher> dbWrapper = new LambdaQueryWrapper<>();
-        dbWrapper.eq(Teacher::getCourseName, courseName);
-        dbWrapper.eq(Teacher::getSemester, currentSemester);
-        List<Teacher> dbTeachers = teacherMapper.selectList(dbWrapper);
+        List<Teacher> dbTeachers = findMatchingTeachersInDatabase(courseName, currentSemester);
 
         if (dbTeachers != null && !dbTeachers.isEmpty()) {
             System.out.println("数据库中已存在当前学期该课程教师，数量: " + dbTeachers.size());
@@ -1048,7 +1056,7 @@ public class AdminService {
 
         System.out.println("数据库中不存在当前学期该课程教师，开始从网页获取");
 
-        List<Teacher> webTeachers = GetTeacherList.getTeachersByCourseNameCurrent(courseName);
+        List<Teacher> webTeachers = fetchTeachersFromWebByCourseNameRule(currentSemester, courseName);
         System.out.println("从网页获取到教师数量: " + webTeachers.size());
 
         List<Teacher> result = new ArrayList<>();
@@ -1066,13 +1074,7 @@ public class AdminService {
             }
             uniqueKeys.add(uniqueKey);
 
-            LambdaQueryWrapper<Teacher> wrapper = new LambdaQueryWrapper<>();
-            wrapper.eq(Teacher::getTeacherName, webTeacher.getTeacherName());
-            wrapper.eq(Teacher::getCourseName, webTeacher.getCourseName());
-            wrapper.eq(Teacher::getSemester, webTeacher.getSemester());
-            wrapper.eq(Teacher::getTeachingClass, webTeacher.getTeachingClass());
-            List<Teacher> existingList = teacherMapper.selectList(wrapper);
-            Teacher existing = existingList.isEmpty() ? null : existingList.get(0);
+            Teacher existing = findExistingTeacherRecord(webTeacher);
 
             if (existing == null) {
                 webTeacher.setCreateTime(LocalDateTime.now());
@@ -1792,16 +1794,11 @@ public class AdminService {
         }
 
         // 构建备案项目描述文本
-        String itemsDesc = "";
-        if (dto.getItems() != null && !dto.getItems().isEmpty()) {
-            List<String> descList = dto.getItems().stream()
-                    .map(ITEM_DESCRIPTION_MAP::get)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-            if (!descList.isEmpty()) {
-                itemsDesc = "需要上传的文件：" + String.join("、", descList);
-            }
-        }
+        List<TaskItemUtils.ItemConfig> requiredItems = TaskItemUtils.parseRequiredItems(
+                dto.getItems() == null ? null : String.join(",", dto.getItems()));
+        String materialRequirements = requiredItems.isEmpty()
+                ? null
+                : requiredItems.stream().map(TaskItemUtils.ItemConfig::getCode).collect(Collectors.joining(","));
 
         // 获取现有教师姓名集合
         LambdaQueryWrapper<User> userWrapper = new LambdaQueryWrapper<>();
@@ -1863,12 +1860,8 @@ public class AdminService {
             item.setTeacherId(vo.getId());
             item.setAssessorId(dto.getAssessorId());
             item.setDeadline(LocalDateTime.parse(dto.getEndTime(), DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-            String description = "任务名称：" + dto.getTaskName();
-            if (!itemsDesc.isEmpty()) {
-                description += "；" + itemsDesc;
-            }
-            item.setDescription(description);
-            item.setMaterialRequirements("");
+            item.setDescription("任务名称：" + dto.getTaskName());
+            item.setMaterialRequirements(materialRequirements);
             item.setIsManual(false);
             taskItems.add(item);
         }
@@ -1890,11 +1883,8 @@ public class AdminService {
                 task.setTeacherId(futureTeacherId);
                 task.setAssessorId(dto.getAssessorId());
                 task.setDeadline(LocalDateTime.parse(dto.getEndTime(), DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-                String description = "任务名称：" + dto.getTaskName();
-                if (!itemsDesc.isEmpty()) {
-                    description += "；" + itemsDesc;
-                }
-                task.setDescription(description);
+                task.setDescription("任务名称：" + dto.getTaskName());
+                task.setMaterialRequirements(materialRequirements);
                 task.setStatus("PENDING_UPLOAD");
                 task.setCreateTime(LocalDateTime.now());
                 task.setUpdateTime(LocalDateTime.now());
@@ -2076,23 +2066,60 @@ public class AdminService {
     }
 
     private List<Teacher> getOrFetchTeachers(String major, String courseName, String semester) {
-        LambdaQueryWrapper<Teacher> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Teacher::getCourseName, courseName)
-                .eq(Teacher::getSemester, semester);
-        List<Teacher> teachers = teacherMapper.selectList(wrapper);
+        List<Teacher> teachers = findMatchingTeachersInDatabase(courseName, semester);
         if (teachers.isEmpty()) {
             if (isFutureSemester(semester)) {
                 return new ArrayList<>();
             }
-            teachers = GetTeacherList.getTeachersByAndSemesterCourseName(semester, courseName);
+            teachers = fetchTeachersFromWebByCourseNameRule(semester, courseName);
             for (Teacher t : teachers) {
-                t.setCreateTime(LocalDateTime.now());
-                t.setUpdateTime(LocalDateTime.now());
-                teacherMapper.insert(t);
+                Teacher existing = findExistingTeacherRecord(t);
+                if (existing == null) {
+                    t.setCreateTime(LocalDateTime.now());
+                    t.setUpdateTime(LocalDateTime.now());
+                    teacherMapper.insert(t);
+                }
             }
+            teachers = findMatchingTeachersInDatabase(courseName, semester);
         }
         teachers = filterSpecialClasses(teachers, major);
         return teachers;
+    }
+
+    private List<Teacher> findMatchingTeachersInDatabase(String courseName, String semester) {
+        LambdaQueryWrapper<Teacher> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Teacher::getSemester, semester);
+        List<Teacher> teachers = teacherMapper.selectList(wrapper);
+        return teachers.stream()
+                .filter(teacher -> CourseNameUtils.matchesCourseName(courseName, teacher.getCourseName()))
+                .collect(Collectors.toList());
+    }
+
+    private List<Teacher> fetchTeachersFromWebByCourseNameRule(String semester, String courseName) {
+        for (String queryCourseName : CourseNameUtils.buildQueryCourseNames(courseName)) {
+            System.out.println("按课程名抓取教务数据: 原始课程=" + courseName + "，查询课程=" + queryCourseName);
+            List<Teacher> teachers = GetTeacherList.getTeachersByAndSemesterCourseName(semester, queryCourseName).stream()
+                    .filter(teacher -> CourseNameUtils.matchesCourseName(courseName, teacher.getCourseName()))
+                    .collect(Collectors.toList());
+            if (!teachers.isEmpty()) {
+                return teachers;
+            }
+        }
+        return new ArrayList<>();
+    }
+
+    private Teacher findExistingTeacherRecord(Teacher webTeacher) {
+        LambdaQueryWrapper<Teacher> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Teacher::getTeacherName, webTeacher.getTeacherName());
+        wrapper.eq(Teacher::getSemester, webTeacher.getSemester());
+        wrapper.eq(Teacher::getTeachingClass, webTeacher.getTeachingClass());
+        List<Teacher> existingList = teacherMapper.selectList(wrapper);
+        for (Teacher existing : existingList) {
+            if (CourseNameUtils.matchesCourseName(webTeacher.getCourseName(), existing.getCourseName())) {
+                return existing;
+            }
+        }
+        return null;
     }
 
     private boolean isFutureSemester(String semester) {
@@ -2222,11 +2249,25 @@ public class AdminService {
             throw new RuntimeException("截止日期格式错误，应为：yyyy-MM-dd");
         }
 
+        Map<Long, List<String>> assessorEmailSummaries = new LinkedHashMap<>();
+
         // 为每个任务分配审核人
         for (Long taskId : reviewAssignmentDTO.getTaskIds()) {
             Task task = taskMapper.selectById(taskId);
             if (task == null) {
                 System.err.println("任务不存在: " + taskId);
+                continue;
+            }
+
+            Set<String> availableProjectCodes = reviewWorkflowService.getAvailableReviewProjects(task).stream()
+                    .map(ReviewProjectVO::getCode)
+                    .collect(Collectors.toSet());
+            List<String> selectedProjectCodes = reviewAssignmentDTO.getReviewProjects().stream()
+                    .filter(availableProjectCodes::contains)
+                    .distinct()
+                    .collect(Collectors.toList());
+
+            if (selectedProjectCodes.isEmpty()) {
                 continue;
             }
 
@@ -2241,15 +2282,14 @@ public class AdminService {
                 }
 
                 try {
-                    // 更新现有任务的审核人和状态
+                    // 更新现有任务的审核人和截止时间
                     task.setAssessorId(assessorId);
                     task.setDeadline(deadline);
-                    task.setStatus("PENDING_REVIEW");
-                    task.setDescription("审核项目: " + String.join(", ", reviewAssignmentDTO.getReviewProjects()));
-                    task.setMaterialRequirements(String.join(", ", reviewAssignmentDTO.getReviewProjects()));
                     task.setUpdateTime(LocalDateTime.now());
 
                     taskMapper.updateById(task);
+                    reviewWorkflowService.assignProjects(task, selectedProjectCodes, assessorId);
+                    reviewWorkflowService.refreshTaskStatus(task.getId());
 
                     // 创建通知
                     Notification notification = new Notification();
@@ -2262,12 +2302,36 @@ public class AdminService {
                     notification.setCreateTime(LocalDateTime.now());
                     notificationMapper.insert(notification);
 
+                    TaskVO taskVO = convertToTaskVO(task);
+                    String reviewProjectsText = selectedProjectCodes.stream()
+                            .map(code -> {
+                                String itemName = TaskItemUtils.getItemName(code);
+                                return itemName != null ? code + "-" + itemName : code;
+                            })
+                            .collect(Collectors.joining("、"));
+                    String taskSummary = String.format("课程：%s%s；教师：%s；审核项目：%s；截止日期：%s",
+                            taskVO.getCourseName(),
+                            taskVO.getTeachingClass() == null || taskVO.getTeachingClass().isEmpty() ? "" : "（" + taskVO.getTeachingClass() + "）",
+                            taskVO.getTeacherName(),
+                            reviewProjectsText,
+                            reviewAssignmentDTO.getDeadline());
+                    assessorEmailSummaries.computeIfAbsent(assessorId, key -> new ArrayList<>()).add(taskSummary);
+
                 } catch (Exception e) {
                     System.err.println("分配审核任务失败: " + e.getMessage());
                     throw new RuntimeException("分配审核任务失败", e);
                 }
             }
         }
+
+        assessorEmailSummaries.forEach((assessorId, summaries) -> {
+            User assessor = userMapper.selectById(assessorId);
+            if (assessor != null && assessor.getEmail() != null && !assessor.getEmail().isEmpty() && !summaries.isEmpty()) {
+                String subject = "【专业认证备案】审核任务分配通知";
+                String content = buildReviewAssignmentEmailContent(summaries);
+                emailService.sendHtmlMail(assessor.getEmail(), subject, content);
+            }
+        });
     }
 
     /**
@@ -2278,11 +2342,11 @@ public class AdminService {
     public List<TaskVO> getAssignableTasks(String status) {
         LambdaQueryWrapper<Task> wrapper = new LambdaQueryWrapper<>();
 
-        // 只查询已提交或需修改的任务，这些任务可以分配审核
+        // 只查询已提交或审核中的任务，这些任务可以继续分配审核项目
         if (status != null && !status.isEmpty()) {
             wrapper.eq(Task::getStatus, status);
         } else {
-            wrapper.in(Task::getStatus, List.of("SUBMITTED", "NEED_REVISION"));
+            wrapper.in(Task::getStatus, List.of("SUBMITTED", "REVIEWING"));
         }
 
         wrapper.orderByDesc(Task::getCreateTime);
@@ -2292,7 +2356,9 @@ public class AdminService {
 
         for (Task task : tasks) {
             TaskVO vo = convertToTaskVO(task);
-            result.add(vo);
+            if (vo.getAvailableReviewProjects() != null && !vo.getAvailableReviewProjects().isEmpty()) {
+                result.add(vo);
+            }
         }
 
         return result;
@@ -2395,15 +2461,10 @@ public class AdminService {
         vo.setDescription(task.getDescription());
         vo.setMaterialRequirements(task.getMaterialRequirements());
 
-        switch (task.getStatus()) {
-            case "PENDING_UPLOAD": vo.setStatusDesc("待上传"); break;
-            case "SUBMITTED": vo.setStatusDesc("已提交"); break;
-            case "PENDING_REVIEW": vo.setStatusDesc("审核中"); break;
-            case "REVIEWING": vo.setStatusDesc("审核中"); break;
-            case "APPROVED": vo.setStatusDesc("审核通过"); break;
-            case "NEED_REVISION": vo.setStatusDesc("需修改"); break;
-            default: vo.setStatusDesc("未知");
-        }
+        vo.setStatusDesc(getTaskStatusDescription(task.getStatus()));
+        vo.setAvailableReviewProjects(reviewWorkflowService.getAvailableReviewProjects(task));
+        vo.setDescription(normalizeTaskDescription(task.getDescription()));
+        vo.setReviewProjectsDescription(getReviewProjectsDescription(task));
 
         // 获取课程信息
         Teacher teacherEntity = null;
@@ -2421,6 +2482,7 @@ public class AdminService {
         if (teacherEntity != null) {
             // 教学班信息
             vo.setCourseName(teacherEntity.getCourseName());
+            vo.setCourseCode(teacherEntity.getCourseCode());
             vo.setTeachingClass(teacherEntity.getTeachingClass());
             if (teacherEntity.getPreferred() != null) {
                 java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("\\d{4}");
@@ -2435,11 +2497,13 @@ public class AdminService {
             Course course = courseMapper.selectById(task.getCourseId());
             if (course != null) {
                 vo.setCourseName(course.getCourseName());
+                vo.setCourseCode("");
                 vo.setTeachingClass("未开课");
                 vo.setGrade(course.getGrade());
                 vo.setSemester(course.getSemester());
             } else {
                 vo.setCourseName("未知课程");
+                vo.setCourseCode("");
                 vo.setTeachingClass("");
             }
         }
@@ -2499,9 +2563,6 @@ public class AdminService {
     }
 
     /**
-     * 获取已备案档案列表
-
-    /**
      * 获取任务状态描述
      * @param status 状态码
      * @return 状态描述
@@ -2512,7 +2573,7 @@ public class AdminService {
             case "PENDING_UPLOAD":
                 return "待上传";
             case "SUBMITTED":
-                return "已提交";
+                return "待审核";
             case "REVIEWING":
                 return "审核中";
             case "APPROVED":
@@ -2522,6 +2583,10 @@ public class AdminService {
             default:
                 return status;
         }
+    }
+
+    private String getTaskStatusDescription(String status) {
+        return getStatusDescription(status);
     }
 
     /**
@@ -2572,6 +2637,7 @@ public class AdminService {
                 vo.setId(task.getId());
                 vo.setCourseId(task.getCourseId());
                 vo.setCourseName(course.getCourseName());
+                vo.setCourseCode("");
                 vo.setTeacherId(task.getTeacherId());
                 vo.setTeacherWorkId(teacher.getWorkId());
                 vo.setTeacherName(teacher.getRealName());
@@ -2587,8 +2653,9 @@ public class AdminService {
                 vo.setStatusDesc(getStatusDescription(task.getStatus()));
                 vo.setCreateTime(task.getCreateTime());
                 vo.setUpdateTime(task.getUpdateTime());
-                vo.setDescription(task.getDescription());
+                vo.setDescription(normalizeTaskDescription(task.getDescription()));
                 vo.setMaterialRequirements(task.getMaterialRequirements());
+                vo.setReviewProjectsDescription(getReviewProjectsDescription(task));
                 vo.setGrade(course.getGrade());
                 vo.setSemester(course.getSemester());
                 vo.setMajor(course.getMajor());
@@ -2623,6 +2690,7 @@ public class AdminService {
                 vo.setId(task.getId());
                 vo.setCourseId(task.getCourseId());
                 vo.setCourseName(teacherEntity.getCourseName());
+                vo.setCourseCode(teacherEntity.getCourseCode());
                 vo.setTeachingClass(teacherEntity.getTeachingClass());
                 vo.setTeacherId(task.getTeacherId());
                 vo.setTeacherWorkId(teacher.getWorkId());
@@ -2639,8 +2707,9 @@ public class AdminService {
                 vo.setStatusDesc(getStatusDescription(task.getStatus()));
                 vo.setCreateTime(task.getCreateTime());
                 vo.setUpdateTime(task.getUpdateTime());
-                vo.setDescription(task.getDescription());
+                vo.setDescription(normalizeTaskDescription(task.getDescription()));
                 vo.setMaterialRequirements(task.getMaterialRequirements());
+                vo.setReviewProjectsDescription(getReviewProjectsDescription(task));
 
                 // 从教学班提取年级
                 if (teacherEntity.getPreferred() != null) {
@@ -2726,6 +2795,7 @@ public class AdminService {
 
         // 用于存储已处理的文件夹，避免重复
         Set<String> processedFolders = new HashSet<>();
+        Set<String> processedSubFolders = new HashSet<>();
 
         int taskCount = 0;
         int fileCount = 0;
@@ -2775,6 +2845,16 @@ public class AdminService {
                     processedFolders.add(folderName);
                 }
 
+                List<TaskItemUtils.ItemConfig> requiredItems = TaskItemUtils.parseRequiredItems(task.getMaterialRequirements());
+                for (TaskItemUtils.ItemConfig item : requiredItems) {
+                    String subFolderName = folderName + "/" + item.getFolderName() + "/";
+                    if (processedSubFolders.add(subFolderName)) {
+                        java.util.zip.ZipEntry subFolderEntry = new java.util.zip.ZipEntry(subFolderName);
+                        zipOut.putNextEntry(subFolderEntry);
+                        zipOut.closeEntry();
+                    }
+                }
+
                 // 获取任务文件
                 LambdaQueryWrapper<com.swjtu.certification.entity.File> fileWrapper = new LambdaQueryWrapper<>();
                 fileWrapper.eq(com.swjtu.certification.entity.File::getTaskId, taskId);
@@ -2785,7 +2865,19 @@ public class AdminService {
                 for (com.swjtu.certification.entity.File file : files) {
                     java.io.File sourceFile = new java.io.File(file.getFilePath());
                     if (sourceFile.exists()) {
-                        java.util.zip.ZipEntry fileEntry = new java.util.zip.ZipEntry(folderName + "/" + file.getOriginalName());
+                        String itemCode = TaskItemUtils.resolveItemCodeFromPath(file.getFilePath());
+                        String itemFolderName = itemCode == null
+                                ? TaskItemUtils.getDefaultFolderName()
+                                : TaskItemUtils.getItemFolderName(itemCode);
+                        String subFolderName = folderName + "/" + itemFolderName + "/";
+                        if (processedSubFolders.add(subFolderName)) {
+                            java.util.zip.ZipEntry subFolderEntry = new java.util.zip.ZipEntry(subFolderName);
+                            zipOut.putNextEntry(subFolderEntry);
+                            zipOut.closeEntry();
+                        }
+
+                        java.util.zip.ZipEntry fileEntry = new java.util.zip.ZipEntry(
+                                subFolderName + TaskItemUtils.sanitizeFolderName(file.getOriginalName()));
                         zipOut.putNextEntry(fileEntry);
 
                         try (FileInputStream fis = new FileInputStream(sourceFile)) {
@@ -2844,7 +2936,10 @@ public class AdminService {
                     reviewData.put("courseName", courseName);
                     reviewData.put("teacherName", teacherName);
                     reviewData.put("semester", exportSemester); // 使用导出格式的学期
-                    reviewData.put("taskDescription", task.getDescription() != null ? task.getDescription() : "");
+                    reviewData.put("taskDescription", normalizeTaskDescription(task.getDescription()));
+                    reviewData.put("uploadRequirements", TaskItemUtils.formatForDisplay(task.getMaterialRequirements()));
+                    reviewData.put("reviewProjects", getReviewProjectsDescription(task));
+                    reviewData.put("reviewItem", record.getItemName() != null ? record.getItemName() : "");
                     reviewData.put("reviewTime", record.getReviewTime().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
                     reviewData.put("reviewerName", reviewerName);
                     reviewData.put("reviewStatus", record.getReviewStatus());
@@ -2870,7 +2965,7 @@ public class AdminService {
                 // 创建CSV内容
                 StringBuilder csvContent = new StringBuilder();
                 // CSV表头
-                csvContent.append("课程名称,教师姓名,学期,任务说明,审核时间,审核员,审核状态,评分,审核意见,修改建议\n");
+                csvContent.append("课程名称,教师姓名,学期,任务说明,需要上传的文件,审核项目,本次审核目录,审核时间,审核员,审核状态,评分,审核意见,修改建议\n");
 
                 // CSV数据行
                 for (Map<String, Object> review : reviews) {
@@ -2878,6 +2973,9 @@ public class AdminService {
                     csvContent.append(escapeCsv((String) review.get("teacherName"))).append(",");
                     csvContent.append(escapeCsv((String) review.get("semester"))).append(",");
                     csvContent.append(escapeCsv((String) review.get("taskDescription"))).append(",");
+                    csvContent.append(escapeCsv((String) review.get("uploadRequirements"))).append(",");
+                    csvContent.append(escapeCsv((String) review.get("reviewProjects"))).append(",");
+                    csvContent.append(escapeCsv((String) review.get("reviewItem"))).append(",");
                     csvContent.append(escapeCsv((String) review.get("reviewTime"))).append(",");
                     csvContent.append(escapeCsv((String) review.get("reviewerName"))).append(",");
                     csvContent.append(escapeCsv((String) review.get("reviewStatus"))).append(",");
@@ -2953,5 +3051,57 @@ public class AdminService {
                         "<p style='color: #999; font-size: 12px;'>本邮件由系统自动发送，请勿回复。</p>",
                 courseName, teachingClass, teacherName, deadline
         );
+    }
+
+    private String buildRemindEmailContent(String courseName, String teachingClass, String statusDesc, String deadline) {
+        return String.format(
+                "<h3>⏰ 专业认证年度备案 - 催办提醒</h3>" +
+                        "<p>您有一个备案任务即将截止或已逾期，请尽快处理。</p>" +
+                        "<table border='0' cellpadding='8' style='border-collapse: collapse;'>" +
+                        "<tr><td><strong>课程名称：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>教学班：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>当前状态：</strong></td><td>%s</td></tr>" +
+                        "<tr><td><strong>截止日期：</strong></td><td>%s</td></tr>" +
+                        "</table>" +
+                        "<p><a href='http://localhost:8080' style='display: inline-block; padding: 10px 20px; background-color: #165DFF; color: #fff; text-decoration: none; border-radius: 5px;'>进入系统处理</a></p>" +
+                        "<p style='color: #999; font-size: 12px;'>本邮件由系统自动发送，请勿回复。</p>",
+                courseName, teachingClass, statusDesc, deadline
+        );
+    }
+
+    private String normalizeTaskDescription(String rawDescription) {
+        if (rawDescription == null || rawDescription.trim().isEmpty()) {
+            return "";
+        }
+        List<String> segments = Arrays.stream(rawDescription.split("[；;\\n]+"))
+                .map(String::trim)
+                .filter(segment -> !segment.isEmpty())
+                .filter(segment -> !segment.startsWith("需要上传的文件："))
+                .filter(segment -> !segment.startsWith("需要上传的文件:"))
+                .filter(segment -> !segment.startsWith("审核项目："))
+                .filter(segment -> !segment.startsWith("审核项目:"))
+                .collect(Collectors.toList());
+        return segments.isEmpty() ? rawDescription.trim() : String.join("；", segments);
+    }
+
+    private String getReviewProjectsDescription(Task task) {
+        List<ReviewProjectVO> projects = reviewWorkflowService.getAssignedProjects(task);
+        if (projects.isEmpty()) {
+            return "";
+        }
+        return projects.stream()
+                .map(project -> project.getCode() + "-" + project.getName())
+                .collect(Collectors.joining("、"));
+    }
+
+    private String buildReviewAssignmentEmailContent(List<String> taskSummaries) {
+        String itemsHtml = taskSummaries.stream()
+                .map(summary -> "<li>" + summary + "</li>")
+                .collect(Collectors.joining());
+        return "<h3>📋 专业认证年度备案 - 审核任务分配通知</h3>" +
+                "<p>您有新的审核任务已分配，请及时登录系统处理。</p>" +
+                "<ul>" + itemsHtml + "</ul>" +
+                "<p><a href='http://localhost:8080/assessor/tasks' style='display: inline-block; padding: 10px 20px; background-color: #165DFF; color: #fff; text-decoration: none; border-radius: 5px;'>进入系统审核</a></p>" +
+                "<p style='color: #999; font-size: 12px;'>本邮件由系统自动发送，请勿回复。</p>";
     }
 }

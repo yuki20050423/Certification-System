@@ -44,7 +44,8 @@ public class FileController {
     public ResponseEntity<Map<String, Object>> uploadFile(
             @RequestParam("file") MultipartFile file,
             @RequestParam Long taskId,
-            @RequestParam Long teacherId) {
+            @RequestParam Long teacherId,
+            @RequestParam(required = false) String itemCode) {
         Map<String, Object> result = new HashMap<>();
         try {
             // 1. 校验任务归属（确保该任务属于该教师）
@@ -77,7 +78,7 @@ public class FileController {
             }
 
             // 3. 上传文件
-            FileVO uploadFile = fileService.uploadFile(taskId, teacherId, file);
+            FileVO uploadFile = fileService.uploadFile(taskId, teacherId, file, itemCode);
             if (uploadFile == null) {
                 result.put("code", 500);
                 result.put("msg", "文件上传失败");
@@ -104,7 +105,8 @@ public class FileController {
     public ResponseEntity<Map<String, Object>> uploadFiles(
             @RequestParam("files") MultipartFile[] files,
             @RequestParam Long taskId,
-            @RequestParam Long teacherId) {
+            @RequestParam Long teacherId,
+            @RequestParam(required = false) String itemCode) {
         Map<String, Object> result = new HashMap<>();
         try {
             // 1. 校验任务归属
@@ -117,7 +119,8 @@ public class FileController {
             }
 
             // 2. 批量上传（过滤不符合条件的文件）
-            List<String> successFiles = fileService.batchUploadFiles(files, taskId, teacherId, ALLOWED_EXTENSIONS, MAX_FILE_SIZE);
+            List<String> successFiles = fileService.batchUploadFiles(files, taskId, teacherId, itemCode,
+                    ALLOWED_EXTENSIONS, MAX_FILE_SIZE);
 
             result.put("code", 200);
             result.put("msg", "批量上传完成，成功上传" + successFiles.size() + "个文件");
@@ -143,7 +146,7 @@ public class FileController {
             // 校验任务归属
             taskService.getTeacherTaskDetail(taskId, teacherId);
 
-            List<FileVO> fileList = fileService.getTaskFiles(taskId);
+            List<FileVO> fileList = fileService.getTaskFilesForTeacher(taskId, teacherId);
             result.put("code", 200);
             result.put("msg", "获取文件列表成功");
             result.put("data", fileList);

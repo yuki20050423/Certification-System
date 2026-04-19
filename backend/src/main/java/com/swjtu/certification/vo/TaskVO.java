@@ -3,6 +3,7 @@ package com.swjtu.certification.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 任务视图对象
@@ -23,6 +24,11 @@ public class TaskVO {
      * 课程名称
      */
     private String courseName;
+
+    /**
+     * 课程代码
+     */
+    private String courseCode;
 
     /**
      * 教学班号
@@ -103,5 +109,15 @@ public class TaskVO {
      * 学期
      */
     private String semester;
+
+    /**
+     * 当前仍可分配/复审的审核项目
+     */
+    private List<ReviewProjectVO> availableReviewProjects;
+
+    /**
+     * 已分配或已审核过的审核项目摘要
+     */
+    private String reviewProjectsDescription;
 }
 

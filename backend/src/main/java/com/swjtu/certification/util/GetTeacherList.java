@@ -16,12 +16,22 @@ public class GetTeacherList {
 
     /* ========================= 1. 配置信息 ========================= */
 
+    /**
+     * 爬取所需的 Cookie 信息
+     * 注意：JSESSIONID 等会话 Cookie 有时效性，过期后需要重新登录获取
+     */
     private static final Map<String, String> COOKIES = new HashMap<>() {{
-        put("JSESSIONID", "BEEEEE679C449726DD5256D616815074");
-        put("TWFID", "972bb967c6468167");
-        put("platformMultilingual_-_edu.cn", "zh_CN");
+        put("JSESSIONID", "A2A1A84D080EE9E0B75546438BF4249E");
+        // put("HMACCOUNT", "2ADF566D31796646");
+        // put("Hm_lpvt_87cf2c3472ff749fe7d2282b7106e8f1", "1776173359");
+        // put("Hm_lvt_87cf2c3472ff749fe7d2282b7106e8f1", "1775817691,1775889608,1775953419,1776173357");
     }};
 
+    /**
+     * 教务系统学期ID映射表
+     * 格式：学期字符串 -> 学期ID (selectTermId参数值)
+     * 例如：2024-2025-2 表示 2024-2025学年第2学期，对应 termId = 118
+     */
     private static final Map<String, String> TERM_ID_MAP = buildRecentTermMap();
 
     private static Map<String, String> buildRecentTermMap() {
@@ -49,7 +59,13 @@ public class GetTeacherList {
         // 格式化 TermName (例如: 2024-2025第1学期)
         String[] parts = semester.split("-");
         String termName = parts[0] + "-" + parts[1] + "第 " + parts[2] + " 学期";
-        String baseUrl = "http://jwc-swjtu-edu-cn.vpn.swjtu.edu.cn:8118/vatuu/CourseAction";
+
+        /**
+         * 教务系统查询接口地址
+         * 新的直接访问地址：http://jwc.swjtu.edu.cn/vatuu/CourseAction
+         * 原VPN地址（已弃用）：http://jwc-swjtu-edu-cn.vpn.swjtu.edu.cn:8118/vatuu/CourseAction
+         */
+        String baseUrl = "http://jwc.swjtu.edu.cn/vatuu/CourseAction";
 
         System.out.println(">>> 启动抓取: 学期=" + semester + ", 课程=" + courseName);
         int page = 1;

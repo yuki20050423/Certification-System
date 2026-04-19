@@ -1,5 +1,6 @@
 package com.swjtu.certification.controller;
 
+import com.swjtu.certification.dto.BatchReviewDTO;
 import com.swjtu.certification.dto.ReviewDTO;
 import com.swjtu.certification.service.FileService;
 import com.swjtu.certification.service.ReviewRecordService;
@@ -161,6 +162,18 @@ public class AssessorController {
         }
     }
 
+    @PostMapping("/review/save/batch")
+    public Result<Object> saveBatchReview(
+            @RequestParam Long assessorId,
+            @Valid @RequestBody BatchReviewDTO batchReviewDTO) {
+        try {
+            reviewRecordService.saveBatchReviewRecord(assessorId, batchReviewDTO);
+            return Result.success("批量保存成功");
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
     /**
      * 提交审核
      */
@@ -171,6 +184,18 @@ public class AssessorController {
         try {
             reviewRecordService.createReviewRecord(assessorId, reviewDTO);
             return Result.success("审核提交成功");
+        } catch (Exception e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    @PostMapping("/review/batch")
+    public Result<Object> submitBatchReview(
+            @RequestParam Long assessorId,
+            @Valid @RequestBody BatchReviewDTO batchReviewDTO) {
+        try {
+            reviewRecordService.createBatchReviewRecord(assessorId, batchReviewDTO);
+            return Result.success("批量审核提交成功");
         } catch (Exception e) {
             return Result.error(e.getMessage());
         }

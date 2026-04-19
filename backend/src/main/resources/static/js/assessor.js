@@ -3,6 +3,8 @@ const API_BASE_URL = 'http://localhost:8080/api';
 
 let currentView = 'tasks';
 let currentTaskId = null;
+let currentTaskRequiredItems = [];
+let currentAssignedReviewProjects = [];
 
 const ITEM_DESC_MAP = {
     "1": "教材封面及目录",
@@ -63,7 +65,6 @@ function getStatusClass(status) {
     switch (status) {
         case 'PENDING_UPLOAD': return 'pending';
         case 'SUBMITTED': return 'submitted';
-        case 'PENDING_REVIEW': return 'submitted';
         case 'REVIEWING': return 'reviewing';
         case 'APPROVED': return 'approved';
         case 'NEED_REVISION': return 'need-revision';
@@ -75,12 +76,67 @@ function getStatusDesc(status) {
     const map = {
         'PENDING_UPLOAD': '待上传',
         'SUBMITTED': '待审核',
-        'PENDING_REVIEW': '待审核',
         'REVIEWING': '审核中',
         'APPROVED': '审核通过',
         'NEED_REVISION': '需修改'
     };
     return map[status] || status;
+}
+
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function parseRequiredItems(materialReq) {
+    if (!materialReq) return [];
+
+    const items = [];
+    const added = new Set();
+
+    materialReq.split(/[,，;；\n]+/).forEach(token => {
+        const match = token.trim().match(/(1[0-2]|[1-9])/);
+        const code = match ? match[1] : null;
+        if (code && ITEM_DESC_MAP[code] && !added.has(code)) {
+            items.push({ code, name: ITEM_DESC_MAP[code] });
+            added.add(code);
+        }
+    });
+
+    if (items.length === 0) {
+        Object.entries(ITEM_DESC_MAP).forEach(([code, name]) => {
+            if (materialReq.includes(name) && !added.has(code)) {
+                items.push({ code, name });
+                added.add(code);
+            }
+        });
+    }
+
+    return items;
+}
+
+function formatMaterialRequirements(materialReq) {
+    if (!materialReq) return '无';
+    const items = parseRequiredItems(materialReq);
+    if (!items.length) return materialReq;
+    return items.map(item => `${item.code}-${item.name}`).join('；');
+}
+
+function groupFilesByItem(files) {
+    const grouped = new Map();
+    (files || []).forEach(file => {
+        const key = file.itemCode || '__default__';
+        if (!grouped.has(key)) {
+            grouped.set(key, []);
+        }
+        grouped.get(key).push(file);
+    });
+    return grouped;
 }
 
 // ==================== 页面初始化 ====================
@@ -232,13 +288,16 @@ async function viewTaskForReview(taskId) {
 
         if (data.code === 200) {
             const task = data.data;
+            currentTaskRequiredItems = parseRequiredItems(task.materialRequirements);
+            currentAssignedReviewProjects = task.assignedReviewProjects || [];
             $('#detailCourseName').text(task.courseName || '-');
             $('#detailTeachingClass').text(task.teachingClass || '-');
             $('#detailTeacherName').text(task.teacherName || '-');
             $('#detailDeadline').text(formatDateTime(task.deadline));
             $('#detailStatus').text(getStatusDesc(task.status)).attr('class', 'status-badge ' + getStatusClass(task.status));
-            $('#detailDescription').text(task.description ? formatMaterialRequirements(task.description) : '无');
-            $('#detailMaterialReq').text(task.materialRequirements ? formatMaterialRequirements(task.materialRequirements) : '无');
+            $('#detailDescription').text(task.description || '无');
+            $('#detailMaterialReq').text(formatMaterialRequirements(task.materialRequirements));
+            renderReviewProjectSelector(currentAssignedReviewProjects);
 
             // 清空审核表单
             $('#reviewStatus').val('');
@@ -252,11 +311,12 @@ async function viewTaskForReview(taskId) {
             loadReviewHistory(taskId);
 
             // 如果任务是待上传状态，禁用审核按钮
+            $('.review-section .section-warning').remove();
             if (task.status === 'PENDING_UPLOAD') {
                 $('.review-section').addClass('disabled').prepend('<div class="section-warning"><i class="fas fa-exclamation-triangle"></i> 该任务处于待上传状态，教师尚未提交材料，无法进行审核操作</div>');
+                toggleReviewActions(false);
             } else {
                 $('.review-section').removeClass('disabled');
-                $('.review-section .section-warning').remove();
             }
         } else {
             showToast('加载任务详情失败', 'error');
@@ -278,7 +338,7 @@ async function loadTaskFiles(taskId) {
     const assessorId = getCurrentAssessorId();
     if (!assessorId) return;
 
-    $('#filesTableBody').html('<tr><td colspan="4" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载文件列表...</td></tr>');
+    $('#filesGroupsContainer').html('<div class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载文件列表...</div>');
 
     try {
         const response = await fetch(`${API_BASE_URL}/assessor/tasks/${taskId}/files?assessorId=${assessorId}`);
@@ -287,48 +347,137 @@ async function loadTaskFiles(taskId) {
         if (data.code === 200) {
             renderFiles(data.data || []);
         } else {
-            $('#filesTableBody').html('<tr><td colspan="4" class="loading-row"><i class="fas fa-exclamation-circle"></i> 加载失败</td></tr>');
+            $('#filesGroupsContainer').html('<div class="loading-row"><i class="fas fa-exclamation-circle"></i> 加载失败</div>');
         }
     } catch (error) {
         console.error('加载文件列表失败:', error);
-        $('#filesTableBody').html('<tr><td colspan="4" class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</td></tr>');
+        $('#filesGroupsContainer').html('<div class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</div>');
     }
 }
 
 function renderFiles(files) {
-    const tbody = $('#filesTableBody');
-    if (!files || files.length === 0) {
-        tbody.html('<tr><td colspan="4" class="loading-row"><i class="fas fa-inbox"></i> 暂无文件</td></tr>');
+    const container = $('#filesGroupsContainer');
+    const requiredItems = currentTaskRequiredItems.length
+        ? currentTaskRequiredItems
+        : [{ code: '__default__', name: '未分类材料' }];
+    const groupedFiles = groupFilesByItem(files);
+
+    let html = '';
+    requiredItems.forEach(item => {
+        const itemFiles = groupedFiles.get(item.code) || [];
+        html += buildFileGroupHtml(item.name, itemFiles);
+    });
+
+    const uncategorizedFiles = groupedFiles.get('__default__') || [];
+    if (uncategorizedFiles.length && currentTaskRequiredItems.length) {
+        html += buildFileGroupHtml('未分类材料', uncategorizedFiles, '这些文件不在当前备案目录配置中');
+    }
+
+    container.html(html || '<div class="loading-row"><i class="fas fa-inbox"></i> 暂无文件</div>');
+}
+
+function buildFileGroupHtml(title, files, description = '') {
+    return `
+        <div class="directory-card ${files.length ? 'has-files' : 'is-empty'}">
+            <div class="directory-card-header">
+                <div>
+                    <div class="directory-title">${escapeHtml(title)}</div>
+                    <div class="directory-meta">${description || (files.length ? `共 ${files.length} 个文件` : '当前目录暂无文件')}</div>
+                </div>
+            </div>
+            ${files.length ? `
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>文件名</th>
+                                <th>文件大小</th>
+                                <th>上传时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${files.map(file => {
+                                const fileName = (file.originalName || file.fileName || '').toLowerCase();
+                                const canPreview = fileName.endsWith('.pdf') || fileName.endsWith('.jpg') ||
+                                    fileName.endsWith('.jpeg') || fileName.endsWith('.png') ||
+                                    fileName.endsWith('.gif');
+                                return `
+                                    <tr>
+                                        <td><i class="fas fa-file"></i> ${escapeHtml(file.originalName || file.fileName)}</td>
+                                        <td>${file.fileSizeFormatted || formatFileSize(file.fileSize)}</td>
+                                        <td>${formatDateTime(file.uploadTime)}</td>
+                                        <td>
+                                            ${canPreview ? `
+                                                <button class="btn-icon" onclick="previewFile(${file.id})" title="预览">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                            ` : ''}
+                                            <button class="btn-icon" onclick="downloadFile(${file.id})" title="下载">
+                                                <i class="fas fa-download"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : '<div class="directory-empty"><i class="fas fa-folder-open"></i> 暂未上传到该目录</div>'}
+        </div>
+    `;
+}
+
+function renderReviewProjectSelector(projects) {
+    const container = $('#reviewItemsContainer');
+    const hint = $('#reviewItemHint');
+    currentAssignedReviewProjects = projects || [];
+
+    if (!currentAssignedReviewProjects.length) {
+        container.html('<div class="loading-row"><i class="fas fa-info-circle"></i> 暂无待处理项目</div>');
+        hint.text('当前没有分配到可审核的项目，或该项目已经由其他审核员处理完成。');
+        toggleReviewActions(false);
         return;
     }
 
-    let html = '';
-    files.forEach(file => {
-        // 检查是否支持预览（PDF、图片）
-        const fileName = (file.originalName || file.fileName).toLowerCase();
-        const canPreview = fileName.endsWith('.pdf') || fileName.endsWith('.jpg') ||
-                          fileName.endsWith('.jpeg') || fileName.endsWith('.png') ||
-                          fileName.endsWith('.gif');
-        
-        html += `
-            <tr>
-                <td><i class="fas fa-file"></i> ${file.originalName || file.fileName}</td>
-                <td>${file.fileSizeFormatted || formatFileSize(file.fileSize)}</td>
-                <td>${formatDateTime(file.uploadTime)}</td>
-                <td>
-                    ${canPreview ? `
-                        <button class="btn-icon" onclick="previewFile(${file.id})" title="预览">
-                            <i class="fas fa-eye"></i>
-                        </button>
-                    ` : ''}
-                    <button class="btn-icon" onclick="downloadFile(${file.id})" title="下载">
-                        <i class="fas fa-download"></i>
-                    </button>
-                </td>
-            </tr>
+    const activeProjects = currentAssignedReviewProjects.filter(project =>
+        project.status === 'PENDING' || project.status === 'REVIEWING'
+    );
+
+    container.html(currentAssignedReviewProjects.map(project => {
+        const disabled = !(project.status === 'PENDING' || project.status === 'REVIEWING');
+        const statusClass = (project.status || '').toLowerCase();
+        return `
+            <div class="review-item-option ${disabled ? 'is-disabled' : ''}">
+                <label>
+                    <input type="checkbox" class="review-item-checkbox" value="${project.code}" ${disabled ? 'disabled' : ''}>
+                    <span class="review-item-name">${escapeHtml(project.name || project.code)}</span>
+                </label>
+                <span class="review-item-status ${statusClass}">${escapeHtml(project.statusDesc || project.status)}</span>
+            </div>
         `;
-    });
-    tbody.html(html);
+    }).join(''));
+
+    hint.text(activeProjects.length
+        ? '请选择一个或多个待处理的备案项目，已完成项目不会再次提交审核。'
+        : '当前分配项目都已处理完成。');
+    toggleReviewActions(activeProjects.length > 0);
+}
+
+function toggleReviewActions(enabled) {
+    $('#reviewStatus').prop('disabled', !enabled);
+    $('#reviewScore').prop('disabled', !enabled);
+    $('#reviewComment').prop('disabled', !enabled);
+    $('#reviewSuggestions').prop('disabled', !enabled);
+    $('#saveReviewBtn').prop('disabled', !enabled);
+    $('#submitReviewBtn').prop('disabled', !enabled);
+}
+
+function getSelectedReviewProjects() {
+    const checkedCodes = $('#reviewItemsContainer .review-item-checkbox:checked').map(function () {
+        return $(this).val();
+    }).get();
+    return currentAssignedReviewProjects.filter(project => checkedCodes.includes(project.code));
 }
 
 window.downloadFile = function (fileId) {
@@ -359,6 +508,12 @@ $('#saveReviewBtn').on('click', async function () {
     const reviewStatus = $('#reviewStatus').val();
     const score = $('#reviewScore').val();
     const comment = $('#reviewComment').val();
+    const selectedProjects = getSelectedReviewProjects();
+
+    if (!selectedProjects.length) {
+        showToast('请先选择至少一个待审核项目', 'error');
+        return;
+    }
 
     if (!reviewStatus) {
         showToast('保存时请先选择审核结果', 'error');
@@ -378,31 +533,33 @@ $('#saveReviewBtn').on('click', async function () {
     $('#saveReviewBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 保存中...');
 
     try {
-        const response = await fetch(`${API_BASE_URL}/assessor/review/save?assessorId=${assessorId}`, {
+        const response = await fetch(`${API_BASE_URL}/assessor/review/save/batch?assessorId=${assessorId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 taskId: currentTaskId,
+                itemCodes: selectedProjects.map(project => project.code),
                 reviewStatus: reviewStatus,
                 score: score ? parseFloat(score) : null,
                 comment: comment || null
             })
         });
         const data = await response.json();
-
-        if (data.code === 200) {
-            showToast('保存成功，任务已进入审核中状态');
-            loadTaskFiles(currentTaskId);
-            loadReviewHistory(currentTaskId);
-            loadTasks(); // 刷新任务列表状态
-        } else {
-            showToast(data.message || '保存失败', 'error');
+        if (data.code !== 200) {
+            throw new Error(data.message || '保存失败');
         }
+        showToast(`已保存 ${selectedProjects.length} 个项目的审核进度`);
+        await viewTaskForReview(currentTaskId);
+        loadTaskFiles(currentTaskId);
+        loadReviewHistory(currentTaskId);
+        loadTasks();
     } catch (error) {
         console.error('保存审核异常:', error);
         showToast('网络错误或服务器异常: ' + error.message, 'error');
     } finally {
-        $('#saveReviewBtn').prop('disabled', false).html('<i class="fas fa-save"></i> 保存');
+        $('#saveReviewBtn').html('<i class="fas fa-save"></i> 保存');
+        toggleReviewActions(currentAssignedReviewProjects.some(project => project.status === 'PENDING' || project.status === 'REVIEWING')
+            && !$('.review-section').hasClass('disabled'));
     }
 });
 
@@ -414,6 +571,12 @@ $('#submitReviewBtn').on('click', async function () {
     const score = $('#reviewScore').val();
     const comment = $('#reviewComment').val();
     const suggestions = $('#reviewSuggestions').val();
+    const selectedProjects = getSelectedReviewProjects();
+
+    if (!selectedProjects.length) {
+        showToast('请先选择至少一个待审核项目', 'error');
+        return;
+    }
 
     if (!reviewStatus) {
         showToast('请选择审核结果', 'error');
@@ -430,38 +593,35 @@ $('#submitReviewBtn').on('click', async function () {
         return;
     }
 
-    const reviewData = {
-        taskId: currentTaskId,
-        reviewStatus: reviewStatus,
-        score: score ? parseFloat(score) : null,
-        comment: comment || null,
-        suggestions: suggestions || null
-    };
-
     $('#submitReviewBtn').prop('disabled', true).html('<i class="fas fa-spinner fa-spin"></i> 提交中...');
 
     try {
-        const response = await fetch(`${API_BASE_URL}/assessor/review?assessorId=${assessorId}`, {
+        const response = await fetch(`${API_BASE_URL}/assessor/review/batch?assessorId=${assessorId}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(reviewData)
+            body: JSON.stringify({
+                taskId: currentTaskId,
+                itemCodes: selectedProjects.map(project => project.code),
+                reviewStatus: reviewStatus,
+                score: score ? parseFloat(score) : null,
+                comment: comment || null,
+                suggestions: suggestions || null
+            })
         });
         const data = await response.json();
-
-        if (data.code === 200) {
-            showToast('审核提交成功');
-            // 不返回列表，继续停留在审核详情页面，允许重新审核
-            loadTaskFiles(currentTaskId);
-            loadReviewHistory(currentTaskId);
-            loadTasks(); // 刷新任务列表状态
-        } else {
-            showToast(data.message || '提交失败', 'error');
+        if (data.code !== 200) {
+            throw new Error(data.message || '提交失败');
         }
+        showToast(`已提交 ${selectedProjects.length} 个项目的审核结果`);
+        await viewTaskForReview(currentTaskId);
+        loadTasks();
     } catch (error) {
         console.error('提交审核异常:', error);
         showToast('网络错误或服务器异常: ' + error.message, 'error');
     } finally {
-        $('#submitReviewBtn').prop('disabled', false).html('<i class="fas fa-check"></i> 提交审核');
+        $('#submitReviewBtn').html('<i class="fas fa-check"></i> 提交审核');
+        toggleReviewActions(currentAssignedReviewProjects.some(project => project.status === 'PENDING' || project.status === 'REVIEWING')
+            && !$('.review-section').hasClass('disabled'));
     }
 });
 
@@ -500,6 +660,7 @@ async function loadReviewHistory(taskId) {
                             <span class="review-time">${formatDateTime(review.reviewTime)}</span>
                         </div>
                         <div class="review-record-content">
+                            ${review.itemName ? `<div class="review-record-row"><strong>审核项目：</strong>${escapeHtml(review.itemName)}</div>` : ''}
                             ${review.score ? `<div class="review-record-row"><strong>评分：</strong>${review.score}</div>` : ''}
                             ${review.comment ? `<div class="review-record-row"><strong>审核意见：</strong>${review.comment}</div>` : ''}
                             ${review.suggestions ? `<div class="review-record-row"><strong>修改建议：</strong>${review.suggestions}</div>` : ''}
@@ -522,7 +683,7 @@ async function loadReviews() {
     const assessorId = getCurrentAssessorId();
     if (!assessorId) return;
 
-    $('#reviewsTableBody').html('<tr><td colspan="8" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>');
+    $('#reviewsTableBody').html('<tr><td colspan="9" class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载中...</td></tr>');
 
     try {
         const response = await fetch(`${API_BASE_URL}/assessor/reviews?assessorId=${assessorId}`);
@@ -531,18 +692,18 @@ async function loadReviews() {
         if (data.code === 200) {
             renderReviews(data.data || []);
         } else {
-            $('#reviewsTableBody').html('<tr><td colspan="8" class="loading-row"><i class="fas fa-exclamation-circle"></i> 加载失败</td></tr>');
+            $('#reviewsTableBody').html('<tr><td colspan="9" class="loading-row"><i class="fas fa-exclamation-circle"></i> 加载失败</td></tr>');
         }
     } catch (error) {
         console.error('加载审核记录失败:', error);
-        $('#reviewsTableBody').html('<tr><td colspan="8" class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</td></tr>');
+        $('#reviewsTableBody').html('<tr><td colspan="9" class="loading-row"><i class="fas fa-exclamation-circle"></i> 网络错误</td></tr>');
     }
 }
 
 function renderReviews(reviews) {
     const tbody = $('#reviewsTableBody');
     if (!reviews || reviews.length === 0) {
-        tbody.html('<tr><td colspan="8" class="loading-row"><i class="fas fa-inbox"></i> 暂无审核记录</td></tr>');
+        tbody.html('<tr><td colspan="9" class="loading-row"><i class="fas fa-inbox"></i> 暂无审核记录</td></tr>');
         return;
     }
 
@@ -551,6 +712,7 @@ function renderReviews(reviews) {
         html += `
             <tr>
                 <td>${r.courseName || '-'}</td>
+                <td>${escapeHtml(r.itemName || r.itemCode || '-')}</td>
                 <td>${r.teachingClass || '-'}</td>
                 <td>${r.teacherName || '-'}</td>
                 <td>${formatDateTime(r.reviewTime)}</td>
@@ -828,24 +990,6 @@ $('.profile-tab').on('click', function () {
     $('.profile-panel').removeClass('active');
     $(`#${tab}-profile`).addClass('active');
 });
-
-function formatMaterialRequirements(materialReq) {
-    if (!materialReq) return '无';
-    // 若内容已包含中文关键词（如“教材”、“大纲”），说明已是可读文本，直接返回
-    if (/[教材|大纲|教案|评分|达成|试卷|成绩|设计|作业]/.test(materialReq)) {
-        return materialReq;
-    }
-    // 提取字符串中所有独立的数字编号（1-12），避免匹配到年份等长数字
-    const numbers = materialReq.match(/\b(1[0-2]|[1-9])\b/g);
-    if (!numbers || numbers.length === 0) {
-        return materialReq; // 无匹配数字则原样返回
-    }
-    const descs = numbers.map(num => {
-        // 如果映射表中有该编号，则返回“编号-中文名称”，否则返回原数字
-        return ITEM_DESC_MAP[num] ? `${num}-${ITEM_DESC_MAP[num]}` : num;
-    });
-    return descs.join('；'); // 用中文分号连接
-}
 
 // ==================== 事件绑定 ====================
 $('#taskStatusFilter').on('change', loadTasks);

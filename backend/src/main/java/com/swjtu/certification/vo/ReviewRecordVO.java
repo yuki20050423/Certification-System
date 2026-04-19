@@ -46,6 +46,16 @@ public class ReviewRecordVO {
     private String assessorName;
 
     /**
+     * 备案项目编码
+     */
+    private String itemCode;
+
+    /**
+     * 备案项目名称
+     */
+    private String itemName;
+
+    /**
      * 审核状态
      */
     private String reviewStatus;

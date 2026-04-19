@@ -18,6 +18,12 @@ public class ReviewDTO {
     private Long taskId;
 
     /**
+     * 备案项目编码
+     */
+    @NotBlank(message = "审核项目不能为空")
+    private String itemCode;
+
+    /**
      * 审核状态：APPROVED-审核通过，REJECTED-需修改
      */
     @NotBlank(message = "审核状态不能为空")

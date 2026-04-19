@@ -5,6 +5,7 @@ import com.swjtu.certification.entity.File;
 import com.swjtu.certification.entity.Task;
 import com.swjtu.certification.mapper.FileMapper;
 import com.swjtu.certification.mapper.TaskMapper;
+import com.swjtu.certification.util.TaskItemUtils;
 import com.swjtu.certification.vo.FileVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,14 +20,15 @@ import java.nio.file.Paths;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class FileService {
     private final FileMapper fileMapper;
     private final TaskMapper taskMapper;
+    private final ReviewWorkflowService reviewWorkflowService;
 
     @Value("${file.upload.path:./uploads}")
     private String uploadPath;
@@ -38,7 +40,7 @@ public class FileService {
      * 上传单个文件
      */
     @Transactional
-    public FileVO uploadFile(Long taskId, Long userId, MultipartFile multipartFile) throws IOException {
+    public FileVO uploadFile(Long taskId, Long userId, MultipartFile multipartFile, String itemCode) throws IOException {
         // 1. 校验任务状态
         Task task = taskMapper.selectById(taskId);
         if (task == null) {
@@ -50,7 +52,8 @@ public class FileService {
         if (LocalDateTime.now().isAfter(task.getDeadline())) {
             throw new RuntimeException("任务已截止，无法上传文件");
         }
-        if (!"PENDING_UPLOAD".equals(task.getStatus()) && !"NEED_REVISION".equals(task.getStatus())) {
+        boolean canUpload = "PENDING_UPLOAD".equals(task.getStatus()) || reviewWorkflowService.hasRejectedProjects(taskId);
+        if (!canUpload) {
             throw new RuntimeException("当前任务状态不允许上传文件");
         }
 
@@ -68,22 +71,18 @@ public class FileService {
             throw new RuntimeException("不支持的文件类型，仅支持：PDF、DOC、EXCEL、图片");
         }
 
-        // 3. 决定存储子目录
-        String subDir = "others";
-        if ("doc".equals(extension) || "docx".equals(extension)) {
-            subDir = "word";
-        } else if ("csv".equals(extension)) {
-            subDir = "csv";
-        } else if ("pdf".equals(extension) || "jpg".equals(extension) || "jpeg".equals(extension) ||
-                "png".equals(extension) || "gif".equals(extension)) {
-            subDir = "images";
-        } else if ("xls".equals(extension) || "xlsx".equals(extension)) {
-            subDir = "excel";
+        String itemFolder = resolveItemFolder(task, itemCode);
+        String normalizedItemCode = TaskItemUtils.normalizeItemCode(itemCode);
+        if (!reviewWorkflowService.canTeacherEditItem(task, normalizedItemCode)) {
+            throw new RuntimeException("该备案目录当前不可修改，已提交待审或已审核通过的目录不能上传文件");
         }
 
-        // 4. 构建绝对路径并确保目录存在
+        // 3. 构建绝对路径并确保目录存在
         Path basePath = Paths.get(uploadPath).toAbsolutePath().normalize();
-        Path uploadDir = basePath.resolve(subDir);
+        Path uploadDir = basePath
+                .resolve("tasks")
+                .resolve("task-" + taskId)
+                .resolve(itemFolder);
         if (!Files.exists(uploadDir)) {
             Files.createDirectories(uploadDir);
         }
@@ -91,10 +90,10 @@ public class FileService {
         String uniqueFilename = UUID.randomUUID() + "." + extension;
         Path filePath = uploadDir.resolve(uniqueFilename);
 
-        // 5. 保存物理文件
+        // 4. 保存物理文件
         multipartFile.transferTo(filePath.toFile());
 
-        // 6. 保存数据库记录
+        // 5. 保存数据库记录
         File file = new File();
         file.setTaskId(taskId);
         file.setFileName(originalFilename);
@@ -114,7 +113,7 @@ public class FileService {
     /**
      * 批量上传文件（过滤不合规文件）
      */
-    public List<String> batchUploadFiles(MultipartFile[] files, Long taskId, Long teacherId,
+    public List<String> batchUploadFiles(MultipartFile[] files, Long taskId, Long teacherId, String itemCode,
                                          String[] allowedExts, long maxSize) {
         List<String> successFiles = new ArrayList<>();
         for (MultipartFile file : files) {
@@ -134,7 +133,7 @@ public class FileService {
                 if (!allowed) {
                     continue;
                 }
-                FileVO uploaded = uploadFile(taskId, teacherId, file);
+                FileVO uploaded = uploadFile(taskId, teacherId, file, itemCode);
                 if (uploaded != null) {
                     successFiles.add(uploaded.getFileName());
                 }
@@ -159,6 +158,24 @@ public class FileService {
                 .collect(Collectors.toList());
     }
 
+    public List<FileVO> getTaskFilesForTeacher(Long taskId, Long teacherId) {
+        Task task = taskMapper.selectById(taskId);
+        if (task == null || !teacherId.equals(task.getTeacherId())) {
+            throw new RuntimeException("无权查看该任务文件");
+        }
+
+        LambdaQueryWrapper<File> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(File::getTaskId, taskId)
+                .eq(File::getStatus, "UPLOADED")
+                .orderByDesc(File::getUploadTime);
+        return fileMapper.selectList(wrapper).stream()
+                .map(file -> convertToVO(file, reviewWorkflowService.canTeacherEditItem(
+                        task,
+                        TaskItemUtils.resolveItemCodeFromPath(file.getFilePath())
+                )))
+                .collect(Collectors.toList());
+    }
+
     /**
      * 删除文件
      */
@@ -180,8 +197,13 @@ public class FileService {
         if (LocalDateTime.now().isAfter(task.getDeadline())) {
             throw new RuntimeException("任务已截止，无法删除文件");
         }
-        if (!"PENDING_UPLOAD".equals(task.getStatus()) && !"NEED_REVISION".equals(task.getStatus())) {
+        boolean canDelete = "PENDING_UPLOAD".equals(task.getStatus()) || reviewWorkflowService.hasRejectedProjects(task.getId());
+        if (!canDelete) {
             throw new RuntimeException("当前任务状态不允许删除文件");
+        }
+        String itemCode = TaskItemUtils.resolveItemCodeFromPath(file.getFilePath());
+        if (!reviewWorkflowService.canTeacherEditItem(task, itemCode)) {
+            throw new RuntimeException("该备案目录当前不可修改，无法删除文件");
         }
 
         // 删除物理文件
@@ -210,7 +232,10 @@ public class FileService {
         if (LocalDateTime.now().isAfter(task.getDeadline())) {
             return false;
         }
-        return "PENDING_UPLOAD".equals(task.getStatus()) || "NEED_REVISION".equals(task.getStatus());
+        if (!("PENDING_UPLOAD".equals(task.getStatus()) || reviewWorkflowService.hasRejectedProjects(task.getId()))) {
+            return false;
+        }
+        return reviewWorkflowService.canTeacherEditItem(task, TaskItemUtils.resolveItemCodeFromPath(file.getFilePath()));
     }
 
     /**
@@ -259,6 +284,10 @@ public class FileService {
     }
 
     private FileVO convertToVO(File file) {
+        return convertToVO(file, false);
+    }
+
+    private FileVO convertToVO(File file, boolean canEdit) {
         FileVO vo = new FileVO();
         vo.setId(file.getId());
         vo.setTaskId(file.getTaskId());
@@ -271,7 +300,31 @@ public class FileService {
         vo.setUploadTime(file.getUploadTime());
         vo.setStatus(file.getStatus());
         vo.setDownloadUrl("/api/files/" + file.getId() + "/download");
+        vo.setItemCode(TaskItemUtils.resolveItemCodeFromPath(file.getFilePath()));
+        vo.setItemName(TaskItemUtils.resolveItemNameFromPath(file.getFilePath()));
+        vo.setCanEdit(canEdit);
         return vo;
+    }
+
+    private String resolveItemFolder(Task task, String rawItemCode) {
+        List<TaskItemUtils.ItemConfig> requiredItems = TaskItemUtils.parseRequiredItems(task.getMaterialRequirements());
+        if (requiredItems.isEmpty()) {
+            return TaskItemUtils.getDefaultFolderName();
+        }
+
+        String itemCode = TaskItemUtils.normalizeItemCode(rawItemCode);
+        if (itemCode == null) {
+            throw new RuntimeException("请选择要上传到的备案项目目录");
+        }
+
+        List<String> allowedItemCodes = requiredItems.stream()
+                .map(TaskItemUtils.ItemConfig::getCode)
+                .collect(Collectors.toList());
+        if (!allowedItemCodes.contains(itemCode)) {
+            throw new RuntimeException("当前任务不允许上传到该备案项目目录");
+        }
+
+        return TaskItemUtils.getItemFolderName(itemCode);
     }
 }
 

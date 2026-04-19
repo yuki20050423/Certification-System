@@ -85,10 +85,9 @@
                         <select id="taskStatusFilter">
                             <option value="">全部</option>
                             <option value="PENDING_UPLOAD">待上传</option>
-
-                            <option value="PENDING_REVIEW">审核中</option>
+                            <option value="SUBMITTED">待审核</option>
+                            <option value="REVIEWING">审核中</option>
                             <option value="APPROVED">审核通过</option>
-                            <option value="NEED_REVISION">需修改</option>
                         </select>
                     </div>
                     <div class="filter-group">
@@ -178,53 +177,16 @@
                         <i class="fas fa-info-circle"></i>
                         支持格式：PDF、DOC/DOCX、XLS/XLSX、JPG/PNG；单文件最大50MB
                     </div>
-                    <div class="upload-area">
-                        <!-- 单个文件上传（点击） -->
-                        <!--                    <div class="upload-box" id="singleUploadBox">-->
-                        <!--                        <i class="fas fa-cloud-upload-alt"></i>-->
-                        <!--                        <p>拖拽文件到此处或点击上传单个文件</p>-->
-                        <!--                        <input type="file" id="singleFileInput"  accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png">-->
-                        <!--                    </div>-->
-                        <!-- 批量上传按钮 -->
-                        <div style="display: flex; gap: 10px; margin-top: 15px;">
-                            <!--                        <button class="btn primary-btn" id="singleUploadBtn">-->
-                            <!--                            <label for="singleFileInputNative" class="btn primary-btn" id="singleUploadLabel">-->
-                            <!--                                <i class="fas fa-file-upload"></i> 上传选中文件-->
-                            <!--                            </label>-->
-                            <!--                            <input type="file" id="singleFileInputNative" style="display: none;" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png">-->
-                            <!--                        </button>-->
-                            <button class="btn primary-btn" id="batchUploadBtn">
-                                <label for="batchFileInputNative" class="btn primary-btn" id="batchUploadLabel">
-                                    <i class="fas fa-files-medical"></i> 批量上传文件
-                                </label>
-                                <input type="file" id="batchFileInputNative" style="display: none;" multiple
-                                    accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png">
-                            </button>
-                        </div>
+                    <div id="uploadDirectoriesContainer" class="directory-grid">
+                        <div class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载目录中...</div>
                     </div>
                 </div>
 
                 <!-- 已上传文件列表 -->
                 <div class="files-section">
-                    <h3>已上传文件</h3>
-                    <div class="table-container">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>文件名</th>
-                                    <th>文件大小</th>
-                                    <th>上传时间</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="filesTableBody">
-                                <tr>
-                                    <td colspan="4" class="loading-row">
-                                        <i class="fas fa-spinner fa-spin"></i> 加载文件列表...
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
+                    <h3>备案目录文件</h3>
+                    <div id="fileDirectoriesContainer" class="directory-list">
+                        <div class="loading-row"><i class="fas fa-spinner fa-spin"></i> 加载文件列表...</div>
                     </div>
                 </div>
 
@@ -241,7 +203,7 @@
                     <button class="btn primary-btn" id="submitTaskBtn" disabled>
                         <i class="fas fa-paper-plane"></i> 提交审核
                     </button>
-                    <span class="hint-text">需至少上传一个文件后方可提交</span>
+                    <span class="hint-text" id="submitHintText">需至少上传一个文件后方可提交</span>
                 </div>
             </div>
 

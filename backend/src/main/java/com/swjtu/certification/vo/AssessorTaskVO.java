@@ -3,6 +3,7 @@ package com.swjtu.certification.vo;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 审核员任务视图对象
@@ -93,5 +94,10 @@ public class AssessorTaskVO {
      * 学期
      */
     private String semester;
+
+    /**
+     * 当前审核员需要处理的审核项目
+     */
+    private List<ReviewProjectVO> assignedReviewProjects;
 }
 

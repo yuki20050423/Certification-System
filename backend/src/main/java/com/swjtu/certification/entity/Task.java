@@ -30,6 +30,21 @@ public class Task {
     private Long teacherId;
 
     /**
+     * 协作教师ID2
+     */
+    private Long teacherId2;
+
+    /**
+     * 协作教师ID3
+     */
+    private Long teacherId3;
+
+    /**
+     * 协作教师ID4
+     */
+    private Long teacherId4;
+
+    /**
      * 审核员ID
      */
     private Long assessorId;

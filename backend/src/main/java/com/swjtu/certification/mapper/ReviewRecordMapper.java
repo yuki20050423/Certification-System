@@ -13,7 +13,7 @@ import java.util.List;
  */
 @Mapper
 public interface ReviewRecordMapper extends BaseMapper<ReviewRecord> {
-    @Select("SELECT * FROM review_record WHERE task_id = #{taskId} ORDER BY create_time DESC")
+    @Select("SELECT * FROM review_record WHERE task_id = #{taskId} ORDER BY review_time DESC")
     List<ReviewRecord> selectByTaskIdOrderByCreateTimeDesc(@Param("taskId") Long taskId);
 }
 
